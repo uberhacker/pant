@@ -7,28 +7,50 @@
   pant operation [site] [env] [profile|access|error] [multisite]
 
   The default [site] is the current Drupal root and the default [env] is dev.
+
   [profile] and [multisite] are only necessary for pant install.
 
 ###Examples:
-  pant backup
+  *pant backup*
+
     Create a backup of the dev environment for the current Drupal site
-  pant code
+
+  *pant code*
+
     Pull the latest code from the dev environment for the current Drupal site
-  pant db
+
+  *pant db*
+
     Download the latest database backup from the dev environment for the current Drupal site
-  pant files
+
+  *pant files*
+
     Download the latest files backup from the dev environment for the current Drupal site
-  pant fix
+
+  *pant fix*
+
     Repair the files and database for the dev environemt of the current Drupal site
-  pant install my-site
+
+  *pant install my-site*
+
     Install the dev environment for the Pantheon Site Name my-site
-  pant log
+
+  *pant log*
+
     Display the web server error log from the dev environment of the current Drupal site
-  pant logout
+
+  *pant logout*
+
     Logout of Terminus
-  pant sites
+
+  *pant sites*
+
     List the available sites on Pantheon
-  pant sync
+
+  *pant sync*
+
     Download the latest code, database and files backup from the dev environment for the current Drupal site
-  pant uninstall my-site
+
+  *pant uninstall my-site*
+
     Uninstall the dev environment for the Pantheon Site Name my-site
