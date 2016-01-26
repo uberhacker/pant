@@ -29,7 +29,7 @@
 
   *pant fix*
 
-    Repair the files and database for the dev environemt of the current Drupal site
+    Repair the files and database for the dev environment of the current Drupal site
 
   *pant install my-site*
 
@@ -42,6 +42,10 @@
   *pant logout*
 
     Logout of Terminus
+
+  *pant sftp*
+
+    Login on Pantheon via sftp in the dev environment of the current Drupal site
 
   *pant sites*
 
