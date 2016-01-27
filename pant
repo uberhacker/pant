@@ -111,7 +111,7 @@ Examples:
 if test $1; then
   OP=$1
   OP_FOUND=n
-  OPS="code backup db files fix install log logout sftp sites sync uninstall"
+  OPS="backup code db files fix install log logout sftp sites sync uninstall"
   for O in $OPS
   do
     if [ "$OP" == "$O" ]; then
@@ -272,7 +272,11 @@ if [ $OP == "log" ]; then
     echo "Valid options are access or error.  The default value is error."
     exit
   fi
-  sudo less /var/log/nginx/$SITE_ENV-$TYPE.log
+  if [ -f /var/log/nginx/$SITE_ENV-$TYPE.log ]; then
+    sudo less /var/log/nginx/$SITE_ENV-$TYPE.log
+  else
+    echo "Log file /var/log/nginx/$SITE_ENV-$TYPE.log does not exist"
+  fi
   exit
 fi
 
@@ -292,6 +296,10 @@ fi
 if [ $OP != "install" ]; then
   MULTISITES=""
   DEFAULTSITE="default"
+  if [ ! -f $ROOT/sites ]; then
+    echo "Unable to determine multisite environment of $SITE_ENV.  The site does not exist."
+    exit
+  fi
   cd $ROOT/sites
   SITES=$(echo $(ls -d */) | sed 's,/,,g')
   for S in $SITES; do
@@ -338,6 +346,10 @@ fi
 
 # Get the latest code changes
 if [[ $OP == "code" || $OP == "sync" ]]; then
+  if [ ! -f $ROOT ]; then
+    echo "Unable to pull the latest code changes to $SITE_ENV.  The site does not exist."
+    exit
+  fi
   cd $ROOT
   $GIT pull
 fi
@@ -370,7 +382,7 @@ if [ $OP == "fix" ]; then
       $DRUSH rr
     fi
   else
-    echo "Unable to fix $SITE_ENV. Directory $ROOT does not exist."
+    echo "Unable to fix $SITE_ENV.  The site does not exist."
   fi
   exit
 fi
@@ -608,6 +620,10 @@ fi
 
 # Database related operations
 if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
+  if [ ! -f $ROOT ]; then
+    echo "Unable to download the database to $SITE_ENV.  The site does not exist."
+    exit
+  fi
   cd $ROOT
   SETTINGS="$ROOT/sites/$MULTISITE/settings.php"
   LOCALSETTINGS=${SETTINGS//settings.php/settings.local.php}
@@ -782,6 +798,10 @@ fi
 
 # File related operations
 if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; then
+  if [ ! -f $ROOT ]; then
+    echo "Unable to download the files to $SITE_ENV.  The site does not exist."
+    exit
+  fi
   # Prompt to enable Stage File Proxy
   echo -n "Would you like to enable Stage File Proxy? (Y/n): "; read -n 1 PROXY
   echo ""
@@ -851,7 +871,7 @@ fi
 # Uninstall specific operation
 if [ $OP == "uninstall" ]; then
   if [ ! -d $ROOT ]; then
-    echo "Site $SITE_ENV does not exist."
+    echo "Unable to uninstall $SITE_ENV.  The site does not exist."
     exit
   fi
   echo -n "Are you sure you want to uninstall $SITE_ENV (y/N): "; read -n 1 REMOVE
