@@ -344,28 +344,35 @@ fi
 
 # Fix permissions and tidy up the database
 if [ $OP == "fix" ]; then
-  cd $ROOT
-  # Make sure the directory is writable by Nginx so files can be saved.
-  sudo chown -R $(whoami):www-data sites/$MULTISITE/files
-  sudo chmod -R g+w sites/$MULTISITE/files
-  # Make sure the directory is writable by Nginx so features can be exported.
-  if [ -d "$ROOT/sites/$MULTISITE/features" ]; then
-    sudo chown -R $(whoami):www-data sites/$MULTISITE/features
-    sudo chmod -R g+w sites/$MULTISITE/features
-  fi
-  if [ -d "$ROOT/sites/$MULTISITE/modules/features" ]; then
-    sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/features
-    sudo chmod -R g+w sites/$MULTISITE/modules/features
-  fi
-  if [ -d "$ROOT/sites/$MULTISITE/modules/custom/features" ]; then
-    sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/custom/features
-    sudo chmod -R g+w sites/$MULTISITE/modules/custom/features
-  fi
-  if [ $VER == 8 ]; then
-    $DRUSH cr
+  if [ -f $ROOT ]; then
+    cd $ROOT
+    # Make sure the directory is writable by Nginx so files can be saved.
+    sudo chown -R $(whoami):www-data sites/$MULTISITE/files
+    sudo chmod -R g+w sites/$MULTISITE/files
+    # Make sure the directory is writable by Nginx so features can be exported.
+    if [ -d "$ROOT/sites/$MULTISITE/features" ]; then
+      sudo chown -R $(whoami):www-data sites/$MULTISITE/features
+      sudo chmod -R g+w sites/$MULTISITE/features
+    fi
+    if [ -d "$ROOT/sites/$MULTISITE/modules/features" ]; then
+      sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/features
+      sudo chmod -R g+w sites/$MULTISITE/modules/features
+    fi
+    if [ -d "$ROOT/sites/$MULTISITE/modules/custom/features" ]; then
+      sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/custom/features
+      sudo chmod -R g+w sites/$MULTISITE/modules/custom/features
+    fi
+    # Determine the Drupal version
+    VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1)
+    if [ $VER == 8 ]; then
+      $DRUSH cr
+    else
+      $DRUSH rr
+    fi
   else
-    $DRUSH rr
+    echo "Unable to fix $SITE_ENV. Directory $ROOT does not exist."
   fi
+  exit
 fi
 
 # Install a new Drupal site
