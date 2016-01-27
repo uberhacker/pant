@@ -235,6 +235,12 @@ if [ $? == 1 ]; then
   exit
 fi
 
+# Get terminus site listing
+if [ $OP == "sites" ]; then
+  $TERMINUS sites list
+  exit
+fi
+
 # Prompt for Pantheon Site Name
 if [ -z "$SITE" ]; then
   $TERMINUS sites list
@@ -273,12 +279,6 @@ fi
 # Login on Pantheon via sftp
 if [ $OP == "sftp" ]; then
   $($TERMINUS site connection-info --site=$SITE --env=$ENV --field=sftp_command)
-  exit
-fi
-
-# Get terminus site listing
-if [ $OP == "sites" ]; then
-  $TERMINUS sites list
   exit
 fi
 
