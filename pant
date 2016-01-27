@@ -361,7 +361,11 @@ if [ $OP == "fix" ]; then
     sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/custom/features
     sudo chmod -R g+w sites/$MULTISITE/modules/custom/features
   fi
-  $DRUSH rr
+  if [ $VER == 8 ]; then
+    $DRUSH cr
+  else
+    $DRUSH rr
+  fi
 fi
 
 # Install a new Drupal site
