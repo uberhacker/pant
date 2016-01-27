@@ -1,20 +1,71 @@
 #!/bin/bash
 
-# Check for prerequisites
-GIT=$(which git)
+# Check for prerequisites and install, if necessary
+PHP_PID=$(pidof php5-fpm)
+if [ -z "$PHP_PID" ]; then
+  PHP=$(dpkg -l | grep php5)
+  if [ -z "$PHP" ]; then
+    sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+  fi
+fi
+MYSQL_PID=$(pidof mysqld)
+if [ -z "$MYSQL_PID" ]; then
+  MYSQL=$(dpkg -l | grep mysql-server)
+  MARIADB=$(dpkg -l | grep mariadb-server)
+  PERCONA=$(dpkg -l | grep percona-server)
+  if [[ -z "$MYSQL" && -z "$MARIADB" && -z "$PERCONA" ]]; then
+    sudo debconf-set-selections <<< 'mariadb-server mariadb-server/root_password password root'
+    sudo debconf-set-selections <<< 'mariadb-server mariadb-server/root_password_again password root'
+    sudo apt-get install mariadb-server -y
+  fi
+fi
+NGINX_PID=$(pidof nginx)
+if [ -z "$NGINX_PID" ]; then
+  NGINX=$(dpkg -l | grep nginx)
+  if [ -z "$NGINX" ]; then
+    sudo apt-get install nginx -y
+  fi
+fi
+COMPOSER=$(which composer)
 if [ $? == 1 ]; then
-  echo "Git is not installed.  See https://github.com/git/git."
-  exit
+  curl -sS https://getcomposer.org/installer | php
+  sudo mv composer.phar /usr/local/bin/composer
 fi
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
-  echo "Terminus is not installed.  See https://github.com/pantheon-systems/cli."
-  exit
+  composer global require pantheon-systems/cli
+  TERMINUS=$(which terminus)
 fi
 DRUSH=$(which drush)
 if [ $? == 1 ]; then
-  echo "Drush is not installed.  See http://www.drush.org/en/master/install."
-  exit
+  composer global require drush/drush:dev-master
+  DRUSH=$(which drush)
+fi
+GIT=$(which git)
+if [ $? == 1 ]; then
+  sudo apt-get install git -y
+  GIT=$(which git)
+fi
+
+# Make sure all LEMP stack services are running
+PHP_PID=$(pidof php5-fpm)
+if [ -z "$PHP_PID" ]; then
+  sudo service php5-fpm start
+fi
+MYSQL_PID=$(pidof mysqld)
+if [ -z "$MYSQL_PID" ]; then
+  sudo service mysql start
+fi
+APACHE=$(dpkg -l | grep apache2)
+if [ ! -z "$APACHE" ]; then
+  APACHE_PID=$(pidof apache2)
+  if [ ! -z "$APACHE_PID" ]; then
+    sudo service apache2 stop
+  fi
+fi
+NGINX_PID=$(pidof nginx)
+if [ -z "$NGINX_PID" ]; then
+  sudo service nginx start
 fi
 
 USAGE=$'
@@ -92,6 +143,7 @@ if test $3; then
 fi
 
 # Get the Pantheon Site Name
+SITE=""
 if test $2; then
   SITE=$2
 else
@@ -101,12 +153,94 @@ else
     ENV=$(echo $SITE_ENV | sed 's#.*\-##g')
     SITE_LEN=$(expr ${#SITE_ENV} - ${#ENV} - 1)
     SITE=${SITE_ENV:0:$SITE_LEN}
-  else
-    $TERMINUS sites list
-    echo -n "Enter the Pantheon Site Name: "; read SITE
-    if [ -z "$SITE" ]; then
-      exit
+  fi
+fi
+
+# Get the install profile
+PROFILE=""
+if test $4; then
+  PROFILE=$4
+fi
+
+# Get the multisite
+MULTISITE="default"
+if test $5; then
+  MULTISITE=$5
+fi
+
+# Terminus authentication
+EMAIL=""
+PASSWORD=""
+HTTPUSER=""
+HTTPPASS=""
+# Retrieve stored Terminus credentials
+if [ -f $HOME/.terminus_auth ]; then
+  while read line; do
+    for pair in $line; do
+      set -- $(echo $pair | tr '=' ' ')
+      if [ "$1" == "email" ]; then
+        EMAIL=${line#"$1="}
+      fi
+      if [ "$1" == "password" ]; then
+        PASSWORD=${line#"$1="}
+      fi
+      if [ "$1" == "httpuser" ]; then
+        HTTPUSER=${line#"$1="}
+      fi
+      if [ "$1" == "httppass" ]; then
+        HTTPPASS=${line#"$1="}
+      fi
+    done
+  done < $HOME/.terminus_auth
+fi
+
+# Terminus authentication prompts
+WHOAMI=$($TERMINUS auth whoami)
+if [ $? == 1 ]; then
+  if [ -z "$HTTPUSER" ]; then
+    echo -n "Enter the HTTP Basic Authentication username: "; read HTTPUSER
+    if [ ! -z "$HTTPUSER" ]; then
+      echo "httpuser=$HTTPUSER" >> $HOME/.terminus_auth
     fi
+  fi
+  if [ -z "$HTTPPASS" ]; then
+    echo -n "Enter the HTTP Basic Authentication password: "; read -s HTTPPASS
+    echo ""
+    if [ ! -z "$HTTPPASS" ]; then
+      echo "httppass=$HTTPPASS" >> $HOME/.terminus_auth
+    fi
+  fi
+  if [ -z "$EMAIL" ]; then
+    echo -n "Enter your Pantheon dashboard email address: "; read EMAIL
+    if [ -z "$EMAIL" ]; then
+      exit
+    else
+      echo "email=$EMAIL" >> $HOME/.terminus_auth
+    fi
+  fi
+  # Change email to match commits to Pantheon
+  GITEMAIL=$($GIT config --get user.email)
+  if [ "$GITEMAIL" != "$EMAIL" ]; then
+    $GIT config --global user.email $EMAIL
+  fi
+  $TERMINUS auth login $EMAIL
+fi
+
+# Remove saved credentials if unable to login
+WHOAMI=$($TERMINUS auth whoami)
+if [ $? == 1 ]; then
+  if [ -f $HOME/.terminus_auth ]; then
+    rm -f $HOME/.terminus_auth
+  fi
+  exit
+fi
+
+# Prompt for Pantheon Site Name
+if [ -z "$SITE" ]; then
+  $TERMINUS sites list
+  echo -n "Enter the Pantheon Site Name: "; read SITE
+  if [ -z "$SITE" ]; then
+    exit
   fi
 fi
 
@@ -122,18 +256,6 @@ fi
 SITE_ENV=$SITE-$ENV
 ROOT=/var/www/$SITE_ENV
 
-# Get the install profile
-PROFILE=""
-if test $4; then
-  PROFILE=$4
-fi
-
-# Get the multisite
-MULTISITE="default"
-if test $5; then
-  MULTISITE=$5
-fi
-
 # Display the web server log
 if [ $OP == "log" ]; then
   TYPE=error
@@ -146,74 +268,6 @@ if [ $OP == "log" ]; then
   fi
   sudo less /var/log/nginx/$SITE_ENV-$TYPE.log
   exit
-fi
-
-# Terminus authentication
-if [ $OP != "uninstall" ]; then
-  EMAIL=""
-  PASSWORD=""
-  HTTPUSER=""
-  HTTPPASS=""
-  # Retrieve stored Terminus credentials
-  if [ -f $HOME/.terminus_auth ]; then
-    while read line; do
-      for pair in $line; do
-        set -- $(echo $pair | tr '=' ' ')
-        if [ "$1" == "email" ]; then
-          EMAIL=${line#"$1="}
-        fi
-        if [ "$1" == "password" ]; then
-          PASSWORD=${line#"$1="}
-        fi
-        if [ "$1" == "httpuser" ]; then
-          HTTPUSER=${line#"$1="}
-        fi
-        if [ "$1" == "httppass" ]; then
-          HTTPPASS=${line#"$1="}
-        fi
-      done
-    done < $HOME/.terminus_auth
-  fi
-  # Terminus authentication prompts
-  WHOAMI=$($TERMINUS auth whoami)
-  if [ $? == 1 ]; then
-    if [ -z "$HTTPUSER" ]; then
-      echo -n "Enter the HTTP Basic Authentication username: "; read HTTPUSER
-      if [ ! -z "$HTTPUSER" ]; then
-        echo "httpuser=$HTTPUSER" >> $HOME/.terminus_auth
-      fi
-    fi
-    if [ -z "$HTTPPASS" ]; then
-      echo -n "Enter the HTTP Basic Authentication password: "; read -s HTTPPASS
-      echo ""
-      if [ ! -z "$HTTPPASS" ]; then
-        echo "httppass=$HTTPPASS" >> $HOME/.terminus_auth
-      fi
-    fi
-    if [ -z "$EMAIL" ]; then
-      echo -n "Enter your Pantheon dashboard email address: "; read EMAIL
-      if [ -z "$EMAIL" ]; then
-        exit
-      else
-        echo "email=$EMAIL" >> $HOME/.terminus_auth
-      fi
-    fi
-    # Change email to match commits to Pantheon
-    GITEMAIL=$($GIT config --get user.email)
-    if [ "$GITEMAIL" != "$EMAIL" ]; then
-      $GIT config --global user.email $EMAIL
-    fi
-    $TERMINUS auth login $EMAIL
-  fi
-
-  # Remove saved credentials if unable to login
-  WHOAMI=$($TERMINUS auth whoami)
-  if [ $? == 1 ]; then
-    if [ -f $HOME/.terminus_auth ]; then
-      rm -f $HOME/.terminus_auth
-    fi
-    exit
-  fi
 fi
 
 # Login on Pantheon via sftp
@@ -367,6 +421,85 @@ if [ $OP == "install" ]; then
     echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot -proot
     echo "flush privileges;" | mysql -uroot -proot
 
+    # Create example Nginx Drupal config
+    if [ ! -f /etc/nginx/conf.d/drupal.conf.example ]; then
+      sudo sh -c 'cat << "EOF" > /etc/nginx/conf.d/drupal.conf.example
+# Example Drupal Recipe
+# See https://www.nginx.com/resources/wiki/start/topics/recipes/drupal/
+server {
+    listen 80;
+    server_name example.com;
+    root /var/www/drupal7;
+    index index.php;
+    access_log /var/log/nginx/drupal7-access.log;
+    error_log /var/log/nginx/drupal7-error.log;
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+
+    # Very rarely should these ever be accessed outside of your lan
+    location ~* \\.(txt|log)$ {
+        allow 192.168.0.0/16;
+        deny all;
+    }
+
+    location ~ \\..*/.*\\.php$ {
+        return 403;
+    }
+
+    location ~ ^/sites/.*/private/ {
+        return 403;
+    }
+
+    # Block access to "hidden" files and directories whose names begin with a
+    # period. This includes directories used by version control systems such
+    # as Subversion or Git to store control files.
+    location ~ (^|/)\\. {
+        return 403;
+    }
+
+    location / {
+        # try_files $uri @rewrite; # For Drupal <= 6
+        try_files $uri /index.php?$query_string; # For Drupal >= 7
+    }
+
+    location @rewrite {
+        rewrite ^/(.*)$ /index.php?q=$1;
+    }
+
+    location ~ \\.php$ {
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        #NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $request_filename;
+        fastcgi_intercept_errors on;
+        fastcgi_pass unix:/var/run/php5-fpm.sock;
+        #fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+    }
+
+    # Fighting with Styles? This little gem is amazing.
+    # location ~ ^/sites/.*/files/imagecache/ { # For Drupal <= 6
+    location ~ ^/sites/.*/files/styles/ { # For Drupal >= 7
+        try_files $uri @rewrite;
+    }
+
+    location ~* \\.(js|css|png|jpg|jpeg|gif|ico)$ {
+        expires max;
+        log_not_found off;
+    }
+}
+EOF'
+    fi
+
     # Create Nginx virtual host
     cp /etc/nginx/conf.d/drupal.conf.example /tmp/$SITE_ENV
     sed -i "s,example.com,$SITE_ENV.site,g" /tmp/$SITE_ENV
@@ -491,7 +624,13 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
     fi
   fi
 
-  # Make sure the Redis service is running
+  # Make sure the php5-redis package is installed
+  PHP5_REDIS=$(dpkg -l | grep php5-redis)
+  if [ -z "$PHP5_REDIS" ]; then
+    sudo apt-get install php5-redis -y
+  fi
+
+  # Make sure the redis-server service is running
   REDIS_PID=$(pidof redis-server)
   if [ -z "$REDIS_PID" ]; then
     REDIS_PACKAGE=$(dpkg -l | grep redis-server)
