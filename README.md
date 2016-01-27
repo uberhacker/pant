@@ -15,11 +15,16 @@
 ```
 
 ###Usage:
-  pant operation [site] [env] [profile|access|error] [multisite]
 
-  The default [site] is the current Drupal root and the default [env] is dev.
+```
+  $ pant operation [site] [env] [profile|access|error] [multisite]
 
-  [profile] and [multisite] are only necessary for pant install.
+  *The default [site] is the current Drupal root and the default [env] is dev.*
+
+  *[profile] and [multisite] are only necessary for pant install.*
+
+  *[access|error] are only necessary for pant log.*
+```
 
 ###Examples:
   *pant backup*
