@@ -3,6 +3,17 @@
 ###Purpose:
   Sets up a local development environment for building Drupal sites hosted on Pantheon
 
+###Installation:
+
+  *Currently, this script will only work in Debian/Ubuntu and derivative Linux distros*
+
+```
+  $ git clone https://github.com/uberhacker/pant.git
+  $ cd pant
+  $ chmod +x pant
+  $ sudo cp pant /usr/local/bin
+```
+
 ###Usage:
   pant operation [site] [env] [profile|access|error] [multisite]
 
