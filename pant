@@ -254,7 +254,6 @@ fi
 ID=$($TERMINUS site info --site=$SITE --field=id)
 if [ -z "$ID" ]; then
   echo "$SITE is not a valid Pantheon Site Name."
-  echo "$USAGE"
   exit
 fi
 
@@ -275,7 +274,7 @@ if [ $OP == "log" ]; then
   if [ -f /var/log/nginx/$SITE_ENV-$TYPE.log ]; then
     sudo less /var/log/nginx/$SITE_ENV-$TYPE.log
   else
-    echo "Log file /var/log/nginx/$SITE_ENV-$TYPE.log does not exist"
+    echo "Log file /var/log/nginx/$SITE_ENV-$TYPE.log does not exist."
   fi
   exit
 fi
@@ -297,7 +296,7 @@ if [ $OP != "install" ]; then
   MULTISITES=""
   DEFAULTSITE="default"
   if [ ! -f $ROOT/sites ]; then
-    echo "Unable to determine multisite environment of $SITE_ENV.  The site does not exist."
+    echo "The site at $ROOT does not exist."
     exit
   fi
   cd $ROOT/sites
@@ -347,7 +346,7 @@ fi
 # Get the latest code changes
 if [[ $OP == "code" || $OP == "sync" ]]; then
   if [ ! -f $ROOT ]; then
-    echo "Unable to pull the latest code changes to $SITE_ENV.  The site does not exist."
+    echo "The site at $ROOT does not exist."
     exit
   fi
   cd $ROOT
@@ -382,7 +381,7 @@ if [ $OP == "fix" ]; then
       $DRUSH rr
     fi
   else
-    echo "Unable to fix $SITE_ENV.  The site does not exist."
+    echo "The site at $ROOT does not exist."
   fi
   exit
 fi
@@ -621,7 +620,7 @@ fi
 # Database related operations
 if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   if [ ! -f $ROOT ]; then
-    echo "Unable to download the database to $SITE_ENV.  The site does not exist."
+    echo "The site at $ROOT does not exist."
     exit
   fi
   cd $ROOT
@@ -799,7 +798,7 @@ fi
 # File related operations
 if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; then
   if [ ! -f $ROOT ]; then
-    echo "Unable to download the files to $SITE_ENV.  The site does not exist."
+    echo "The site at $ROOT does not exist."
     exit
   fi
   # Prompt to enable Stage File Proxy
@@ -871,7 +870,7 @@ fi
 # Uninstall specific operation
 if [ $OP == "uninstall" ]; then
   if [ ! -d $ROOT ]; then
-    echo "Unable to uninstall $SITE_ENV.  The site does not exist."
+    echo "The site at $ROOT does not exist."
     exit
   fi
   echo -n "Are you sure you want to uninstall $SITE_ENV (y/N): "; read -n 1 REMOVE
