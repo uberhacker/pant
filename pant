@@ -295,7 +295,7 @@ fi
 if [ $OP != "install" ]; then
   MULTISITES=""
   DEFAULTSITE="default"
-  if [ ! -f $ROOT/sites ]; then
+  if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
     exit
   fi
@@ -345,7 +345,7 @@ fi
 
 # Get the latest code changes
 if [[ $OP == "code" || $OP == "sync" ]]; then
-  if [ ! -f $ROOT ]; then
+  if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
     exit
   fi
@@ -355,7 +355,7 @@ fi
 
 # Fix permissions and tidy up the database
 if [ $OP == "fix" ]; then
-  if [ -f $ROOT ]; then
+  if [ -d $ROOT ]; then
     cd $ROOT
     # Make sure the directory is writable by Nginx so files can be saved.
     sudo chown -R $(whoami):www-data sites/$MULTISITE/files
@@ -619,7 +619,7 @@ fi
 
 # Database related operations
 if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
-  if [ ! -f $ROOT ]; then
+  if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
     exit
   fi
@@ -797,7 +797,7 @@ fi
 
 # File related operations
 if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; then
-  if [ ! -f $ROOT ]; then
+  if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
     exit
   fi
