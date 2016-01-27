@@ -346,19 +346,19 @@ fi
 if [ $OP == "fix" ]; then
   cd $ROOT
   # Make sure the directory is writable by Nginx so files can be saved.
-  sudo chown -R docker:www-data sites/$MULTISITE/files
+  sudo chown -R $(whoami):www-data sites/$MULTISITE/files
   sudo chmod -R g+w sites/$MULTISITE/files
   # Make sure the directory is writable by Nginx so features can be exported.
   if [ -d "$ROOT/sites/$MULTISITE/features" ]; then
-    sudo chown -R docker:www-data sites/$MULTISITE/features
+    sudo chown -R $(whoami):www-data sites/$MULTISITE/features
     sudo chmod -R g+w sites/$MULTISITE/features
   fi
   if [ -d "$ROOT/sites/$MULTISITE/modules/features" ]; then
-    sudo chown -R docker:www-data sites/$MULTISITE/modules/features
+    sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/features
     sudo chmod -R g+w sites/$MULTISITE/modules/features
   fi
   if [ -d "$ROOT/sites/$MULTISITE/modules/custom/features" ]; then
-    sudo chown -R docker:www-data sites/$MULTISITE/modules/custom/features
+    sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/custom/features
     sudo chmod -R g+w sites/$MULTISITE/modules/custom/features
   fi
   $DRUSH rr
@@ -514,7 +514,7 @@ EOF'
   for S in $SITES; do
     sudo chmod -R ug+w $ROOT/sites/$S
     if [ -d "$ROOT/sites/$S/files" ]; then
-      sudo chown -R docker:www-data $ROOT/sites/$S/files
+      sudo chown -R $(whoami):www-data $ROOT/sites/$S/files
     fi
   done
 
@@ -561,7 +561,7 @@ EOF'
   for S in $SITES; do
     sudo chmod -R ug+w $ROOT/sites/$S
     if [ -d "$ROOT/sites/$S/files" ]; then
-      sudo chown -R docker:www-data $ROOT/sites/$S/files
+      sudo chown -R $(whoami):www-data $ROOT/sites/$S/files
     fi
   done
 
@@ -816,7 +816,7 @@ if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; the
       cp -r files_$ENV/* .
       rm -rf files_$ENV/
       cd ..
-      sudo chown -R docker:www-data files/
+      sudo chown -R $(whoami):www-data files/
       sudo chmod -R g+w files/
     fi
   fi
