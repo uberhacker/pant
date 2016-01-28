@@ -198,16 +198,6 @@ if [ -f $HOME/.terminus/pant ]; then
   done < $HOME/.terminus/pant
 fi
 
-# Override stored Terminus credentials if session token exists
-if [[ ! -z "$EMAIL" && -f $HOME/.terminus/tokens/$EMAIL ]]; then
-  SESSION_TOKEN=$(grep -Po '"token":.*?[^\\]"' $HOME/.terminus/tokens/$EMAIL | cut -d: -f2 | tr -d '"')
-  $TERMINUS auth login --machine-token=$SESSION_TOKEN
-else
-  if [ ! -z "$TOKEN" ]; then
-    $TERMINUS auth login --machine-token=$TOKEN
-  fi
-fi
-
 # Terminus authentication prompts
 WHOAMI=$($TERMINUS auth whoami)
 if [ $? == 1 ]; then
@@ -235,12 +225,16 @@ if [ $? == 1 ]; then
   fi
   if [ -z "$TOKEN" ]; then
     if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1) == "0.10.2" ]; then
-      echo -n "Enter your machine token: "; read TOKEN
-      if [ -z "$TOKEN" ]; then
-        exit
+      # Grab the machine token if it exists
+      if [ -f $HOME/.terminus/tokens/$EMAIL ]; then
+        TOKEN=$(grep -Po '"token":.*?[^\\]"' $HOME/.terminus/tokens/$EMAIL | cut -d: -f2 | tr -d '"')
       else
-        echo "token=$TOKEN" >> $HOME/.terminus/pant
+        echo -n "Enter your machine token: "; read TOKEN
+        if [ -z "$TOKEN" ]; then
+          exit
+        fi
       fi
+      echo "token=$TOKEN" >> $HOME/.terminus/pant
     fi
   fi
   # Change email to match commits to Pantheon
