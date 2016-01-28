@@ -130,8 +130,8 @@ fi
 
 if [ $OP == "logout" ]; then
   $TERMINUS auth logout
-  if [ -f $HOME/.terminus_auth ]; then
-    rm -f $HOME/.terminus_auth
+  if [ -f $HOME/.terminus/pant ]; then
+    rm -f $HOME/.terminus/pant
   fi
   exit
 fi
@@ -173,8 +173,9 @@ EMAIL=""
 PASSWORD=""
 HTTPUSER=""
 HTTPPASS=""
+TOKEN=""
 # Retrieve stored Terminus credentials
-if [ -f $HOME/.terminus_auth ]; then
+if [ -f $HOME/.terminus/pant ]; then
   while read line; do
     for pair in $line; do
       set -- $(echo $pair | tr '=' ' ')
@@ -190,24 +191,38 @@ if [ -f $HOME/.terminus_auth ]; then
       if [ "$1" == "httppass" ]; then
         HTTPPASS=${line#"$1="}
       fi
+      if [ "$1" == "token" ]; then
+        TOKEN=${line#"$1="}
+      fi
     done
-  done < $HOME/.terminus_auth
+  done < $HOME/.terminus/pant
+fi
+
+# Override stored Terminus credentials if session token exists
+if [[ ! -z "$EMAIL" && -f $HOME/.terminus/tokens/$EMAIL ]]; then
+  SESSION_TOKEN=$(grep -Po '"token":.*?[^\\]"' $HOME/.terminus/tokens/$EMAIL | cut -d: -f2 | tr -d '"')
+  $TERMINUS auth login --machine-token=$SESSION_TOKEN
+else
+  if [ ! -z "$TOKEN" ]; then
+    $TERMINUS auth login --machine-token=$TOKEN
+  fi
 fi
 
 # Terminus authentication prompts
 WHOAMI=$($TERMINUS auth whoami)
 if [ $? == 1 ]; then
+  TERMINUS_VER=$(echo $(terminus cli version --format=json) | grep -Po '"version":.*?[^\\]"' | cut -d: -f2 | tr -d '"')
   if [ -z "$HTTPUSER" ]; then
     echo -n "Enter the HTTP Basic Authentication username: "; read HTTPUSER
     if [ ! -z "$HTTPUSER" ]; then
-      echo "httpuser=$HTTPUSER" >> $HOME/.terminus_auth
+      echo "httpuser=$HTTPUSER" >> $HOME/.terminus/pant
     fi
   fi
   if [ -z "$HTTPPASS" ]; then
     echo -n "Enter the HTTP Basic Authentication password: "; read -s HTTPPASS
     echo ""
     if [ ! -z "$HTTPPASS" ]; then
-      echo "httppass=$HTTPPASS" >> $HOME/.terminus_auth
+      echo "httppass=$HTTPPASS" >> $HOME/.terminus/pant
     fi
   fi
   if [ -z "$EMAIL" ]; then
@@ -215,7 +230,17 @@ if [ $? == 1 ]; then
     if [ -z "$EMAIL" ]; then
       exit
     else
-      echo "email=$EMAIL" >> $HOME/.terminus_auth
+      echo "email=$EMAIL" >> $HOME/.terminus/pant
+    fi
+  fi
+  if [ -z "$TOKEN" ]; then
+    if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1) == "0.10.2" ]; then
+      echo -n "Enter your machine token: "; read TOKEN
+      if [ -z "$TOKEN" ]; then
+        exit
+      else
+        echo "token=$TOKEN" >> $HOME/.terminus/pant
+      fi
     fi
   fi
   # Change email to match commits to Pantheon
@@ -223,14 +248,22 @@ if [ $? == 1 ]; then
   if [ "$GITEMAIL" != "$EMAIL" ]; then
     $GIT config --global user.email $EMAIL
   fi
-  $TERMINUS auth login $EMAIL
+  # Login based on detected Terminus version
+  if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1) == "0.10.2" ]; then
+    $TERMINUS auth login --machine-token=$TOKEN
+  else
+    $TERMINUS auth login $EMAIL
+  fi
 fi
 
 # Remove saved credentials if unable to login
 WHOAMI=$($TERMINUS auth whoami)
 if [ $? == 1 ]; then
-  if [ -f $HOME/.terminus_auth ]; then
-    rm -f $HOME/.terminus_auth
+  if [ -f $HOME/.terminus/pant ]; then
+    rm -f $HOME/.terminus/pant
+  fi
+  if [ -f $HOME/.terminus/tokens/$EMAIL ]; then
+    rm -f $HOME/.terminus/tokens/$EMAIL
   fi
   exit
 fi
