@@ -31,15 +31,19 @@ if [ $? == 1 ]; then
   curl -sS https://getcomposer.org/installer | php
   sudo mv composer.phar /usr/local/bin/composer
 fi
+DRUSH=$(which drush)
+if [ $? == 1 ]; then
+  composer global require drush/drush:dev-master
+  DRUSH=$(which drush)
+fi
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
   composer global require pantheon-systems/cli
   TERMINUS=$(which terminus)
 fi
-DRUSH=$(which drush)
-if [ $? == 1 ]; then
-  composer global require drush/drush:dev-master
-  DRUSH=$(which drush)
+if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
+  echo "export PATH=\$HOME/.composer/vendor/bin:\$PATH" >> $HOME/.bashrc
+  source $HOME/.bashrc
 fi
 GIT=$(which git)
 if [ $? == 1 ]; then
@@ -79,6 +83,7 @@ Usage:
 
   The default [site] is the current Drupal root and the default [env] is dev.
   [profile] and [multisite] are only necessary for pant install.
+  [access|error] are only necessary for pant log.
 
 Examples:
   pant backup
