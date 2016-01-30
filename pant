@@ -41,14 +41,19 @@ if [ $? == 1 ]; then
   composer global require pantheon-systems/cli
   TERMINUS=$(which terminus)
 fi
-if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
-  echo "export PATH=\$HOME/.composer/vendor/bin:\$PATH" >> $HOME/.bashrc
-  source $HOME/.bashrc
-fi
 GIT=$(which git)
 if [ $? == 1 ]; then
   sudo apt-get install git -y
   GIT=$(which git)
+fi
+if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
+  echo "export PATH=\$HOME/.composer/vendor/bin:\$PATH" >> $HOME/.bashrc
+  source $HOME/.bashrc
+fi
+if [ ! -d /var/www ]; then
+  sudo mkdir /var/www
+  sudo chmod 775 /var/www
+  sudo chown $(whoami):www-data /var/www
 fi
 
 # Make sure all LEMP stack services are running
@@ -134,7 +139,7 @@ else
 fi
 
 if [ $OP == "logout" ]; then
-  $TERMINUS auth logout
+  $TERMINUS auth logout 2> /dev/null
   if [ -f $HOME/.terminus/pant ]; then
     rm -f $HOME/.terminus/pant
   fi
@@ -162,7 +167,7 @@ else
 fi
 
 # Get the install profile
-PROFILE=""
+PROFILE="standard"
 if test $4; then
   PROFILE=$4
 fi
@@ -204,9 +209,9 @@ if [ -f $HOME/.terminus/pant ]; then
 fi
 
 # Terminus authentication prompts
-WHOAMI=$($TERMINUS auth whoami)
-if [ $? == 1 ]; then
-  TERMINUS_VER=$(echo $(terminus cli version --format=json) | grep -Po '"version":.*?[^\\]"' | cut -d: -f2 | tr -d '"')
+WHOAMI=$($TERMINUS auth whoami 2> /dev/null)
+if [ -z "$WHOAMI" ]; then
+  TERMINUS_VER=$(echo $($TERMINUS cli version --format=json 2> /dev/null) | grep -Po '"version":.*?[^\\]"' | cut -d: -f2 | tr -d '"')
   if [ -z "$HTTPUSER" ]; then
     echo -n "Enter the HTTP Basic Authentication username: "; read HTTPUSER
     if [ ! -z "$HTTPUSER" ]; then
@@ -249,15 +254,15 @@ if [ $? == 1 ]; then
   fi
   # Login based on detected Terminus version
   if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1) == "0.10.2" ]; then
-    $TERMINUS auth login --machine-token=$TOKEN
+    $TERMINUS auth login --machine-token=$TOKEN 2> /dev/null
   else
-    $TERMINUS auth login $EMAIL
+    $TERMINUS auth login $EMAIL 2> /dev/null
   fi
 fi
 
 # Remove saved credentials if unable to login
-WHOAMI=$($TERMINUS auth whoami)
-if [ $? == 1 ]; then
+WHOAMI=$($TERMINUS auth whoami 2> /dev/null)
+if [ -z "$WHOAMI" ]; then
   if [ -f $HOME/.terminus/pant ]; then
     rm -f $HOME/.terminus/pant
   fi
@@ -269,13 +274,13 @@ fi
 
 # Get terminus site listing
 if [ $OP == "sites" ]; then
-  $TERMINUS sites list
+  $TERMINUS sites list 2> /dev/null
   exit
 fi
 
 # Prompt for Pantheon Site Name
 if [ -z "$SITE" ]; then
-  $TERMINUS sites list
+  $TERMINUS sites list 2> /dev/null
   echo -n "Enter the Pantheon Site Name: "; read SITE
   if [ -z "$SITE" ]; then
     exit
@@ -283,7 +288,7 @@ if [ -z "$SITE" ]; then
 fi
 
 # Validate the Pantheon Site Name
-ID=$($TERMINUS site info --site=$SITE --field=id)
+ID=$($TERMINUS site info --site=$SITE --field=id 2> /dev/null)
 if [ -z "$ID" ]; then
   echo "$SITE is not a valid Pantheon Site Name."
   exit
@@ -313,13 +318,13 @@ fi
 
 # Login on Pantheon via sftp
 if [ $OP == "sftp" ]; then
-  $($TERMINUS site connection-info --site=$SITE --env=$ENV --field=sftp_command)
+  $($TERMINUS site connection-info --site=$SITE --env=$ENV --field=sftp_command 2> /dev/null)
   exit
 fi
 
 # Site backup
 if [ $OP == "backup" ]; then
-  $TERMINUS site backups create --site=$SITE --env=$ENV
+  $TERMINUS site backups create --site=$SITE --env=$ENV 2> /dev/null
   exit
 fi
 
@@ -421,13 +426,16 @@ fi
 # Install a new Drupal site
 if [ $OP == "install" ]; then
   # Git command to clone the site environment
-  GIT_CLONE=$($TERMINUS site connection-info --site=$SITE --env=$ENV --field=git_command)-$ENV
+  GIT_CLONE=$($TERMINUS site connection-info --site=$SITE --env=$ENV --field=git_command 2> /dev/null)
 
   # Validate the git command
-  if [ $? == 1 ]; then
+  if [ -z "$GIT_CLONE" ]; then
     echo "$ENV is not a cloneable Pantheon environment."
     exit
   fi
+
+  # Append environment to the git clone command
+  GIT_CLONE="$GIT_CLONE-$ENV"
 
   # Remove existing site files if they exist
   if [ -d $ROOT ]; then
@@ -443,8 +451,16 @@ if [ $OP == "install" ]; then
   fi
 
   # Set install profile
+  NEW_PROFS=""
   PROFS=$(ls $ROOT/profiles)
-  if [ -z "$PROFILE" ]; then
+  for P in $PROFS
+  do
+    if [ "$P" != "README.txt" ]; then
+      NEW_PROFS+="$P "
+    fi
+  done
+  PROFS=$NEW_PROFS
+  if [ ! -z "$PROFS" ]; then
     echo ""
     echo "The following install profiles are available:"
     echo $PROFS
@@ -453,16 +469,16 @@ if [ $OP == "install" ]; then
     if [ -z "$PROFILE" ]; then
       exit
     fi
-  fi
-  VALID=no
-  for PROF in $PROFS; do
-    if [ "$PROF" == "$PROFILE" ]; then
-      VALID=yes
+    VALID=no
+    for PROF in $PROFS; do
+      if [ "$PROF" == "$PROFILE" ]; then
+        VALID=yes
+      fi
+    done
+    if [ "$VALID" == "no" ]; then
+      echo "$PROFILE is not a valid install profile."
+      exit
     fi
-  done
-  if [ "$VALID" == "no" ]; then
-    echo "$PROFILE is not a valid install profile."
-    exit
   fi
 
   # Replace dashes with underscores in the site database name
@@ -659,7 +675,7 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   SETTINGS="$ROOT/sites/$MULTISITE/settings.php"
   LOCALSETTINGS=${SETTINGS//settings.php/settings.local.php}
   # Download and load the latest database backup if it exists
-  DB=$($TERMINUS site backups get --site=$SITE --env=$ENV --element=db --latest)
+  DB=$($TERMINUS site backups get --site=$SITE --env=$ENV --element=db --latest 2> /dev/null)
   if [ ! -z "$DB" ]; then
     LABEL=${DB:0:11}
     if [ "$LABEL" == "Backup URL:" ]; then
@@ -845,7 +861,7 @@ if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; the
   if [ "$PROXY" == "y" ]; then
     $DRUSH dl -n stage_file_proxy
     $DRUSH en -y stage_file_proxy
-    DOMAIN=$(echo $($TERMINUS site hostnames list --site=$SITE --env=$ENV) | cut -d" " -f4)
+    DOMAIN=$(echo $($TERMINUS site hostnames list --site=$SITE --env=$ENV) | cut -d" " -f4 2> /dev/null)
     if [ ! -z "$DOMAIN" ]; then
       if [ $VER == 8 ]; then
         $DRUSH cset stage_file_proxy.settings hotlink true -y
@@ -865,7 +881,7 @@ if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; the
     fi
   else
     cd $ROOT/sites/$MULTISITE/files
-    FILES=$($TERMINUS site backups get --site=$SITE --env=$ENV --element=files --latest)
+    FILES=$($TERMINUS site backups get --site=$SITE --env=$ENV --element=files --latest 2> /dev/null)
     if [ ! -z "$FILES" ]; then
       LABEL=${FILES:0:11}
       if [ "$LABEL" == "Backup URL:" ]; then
