@@ -1,6 +1,10 @@
 #!/bin/bash
 
 # Check for prerequisites and install, if necessary
+SUDO=$(which sudo)
+if [ -z "$SUDO" ]; then
+  sudo apt-get install sudo -y
+fi
 PHP_PID=$(pidof php5-fpm)
 if [ -z "$PHP_PID" ]; then
   PHP=$(dpkg -l | grep php5)
@@ -18,6 +22,10 @@ if [ -z "$MYSQL_PID" ]; then
     sudo debconf-set-selections <<< 'mariadb-server mariadb-server/root_password_again password root'
     sudo apt-get install mariadb-server -y
   fi
+fi
+CURL=$(which curl)
+if [ -z "$CURL" ]; then
+  sudo apt-get install curl -y
 fi
 NGINX_PID=$(pidof nginx)
 if [ -z "$NGINX_PID" ]; then
@@ -52,9 +60,11 @@ if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
 fi
 if [ ! -d /var/www ]; then
   sudo mkdir /var/www
-  sudo chmod 775 /var/www
-  sudo chown $(whoami):www-data /var/www
 fi
+
+# Fix permissions
+sudo chmod 775 /var/www
+sudo chown $(whoami):www-data /var/www
 
 # Make sure all LEMP stack services are running
 PHP_PID=$(pidof php5-fpm)
