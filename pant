@@ -39,15 +39,16 @@ if [ $? == 1 ]; then
   curl -sS https://getcomposer.org/installer | php
   sudo mv composer.phar /usr/local/bin/composer
 fi
+if [ -d $HOME/.composer ]; then
+  sudo chown -R $(whoami):$(whoami) $HOME/.composer
+fi
 DRUSH=$(which drush)
 if [ $? == 1 ]; then
   composer global require drush/drush:dev-master
-  DRUSH=$(which drush)
 fi
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
   composer global require pantheon-systems/cli
-  TERMINUS=$(which terminus)
 fi
 GIT=$(which git)
 if [ $? == 1 ]; then
@@ -55,8 +56,10 @@ if [ $? == 1 ]; then
   GIT=$(which git)
 fi
 if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
+  export PATH=$HOME/.composer/vendor/bin:$PATH
+  DRUSH=$(which drush)
+  TERMINUS=$(which terminus)
   echo "export PATH=\$HOME/.composer/vendor/bin:\$PATH" >> $HOME/.bashrc
-  source $HOME/.bashrc
 fi
 if [ ! -d /var/www ]; then
   sudo mkdir /var/www
