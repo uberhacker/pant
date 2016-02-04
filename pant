@@ -110,6 +110,8 @@ Examples:
     Pull the latest code from the dev environment for the current Drupal site
   pant db
     Download the latest database backup from the dev environment for the current Drupal site
+  pant domain
+    Print the Pantheon domain for the dev environment of the current Drupal site
   pant files
     Download the latest files backup from the dev environment for the current Drupal site
   pant fix
@@ -134,9 +136,8 @@ Examples:
 if test $1; then
   OP=$1
   OP_FOUND=n
-  OPS="backup code db files fix install log logout sftp sites sync uninstall"
-  for O in $OPS
-  do
+  OPS="backup code db domain files fix install log logout sftp sites sync uninstall"
+  for O in $OPS; do
     if [ "$OP" == "$O" ]; then
       OP_FOUND=y
     fi
@@ -151,6 +152,7 @@ else
   exit
 fi
 
+# Logout of Terminus
 if [ $OP == "logout" ]; then
   $TERMINUS auth logout 2> /dev/null
   if [ -f $HOME/.terminus/pant ]; then
@@ -165,6 +167,18 @@ if test $3; then
   ENV=$3
 fi
 
+# Get the install profile
+PROFILE=""
+if test $4; then
+  PROFILE=$4
+fi
+
+# Get the multisite
+MULTISITE="default"
+if test $5; then
+  MULTISITE=$5
+fi
+
 # Get the Pantheon Site Name
 SITE=""
 if test $2; then
@@ -177,18 +191,6 @@ else
     SITE_LEN=$(expr ${#SITE_ENV} - ${#ENV} - 1)
     SITE=${SITE_ENV:0:$SITE_LEN}
   fi
-fi
-
-# Get the install profile
-PROFILE="standard"
-if test $4; then
-  PROFILE=$4
-fi
-
-# Get the multisite
-MULTISITE="default"
-if test $5; then
-  MULTISITE=$5
 fi
 
 # Terminus authentication
@@ -329,6 +331,13 @@ if [ $OP == "log" ]; then
   exit
 fi
 
+# Print the Pantheon domain
+if [ $OP == "domain" ]; then
+  DOMAIN=$($TERMINUS site hostnames list --site=$SITE --env=$ENV | head -4 | tail -1 | xargs | cut -d' ' -f1 2> /dev/null)
+  echo $DOMAIN
+  exit
+fi
+
 # Login on Pantheon via sftp
 if [ $OP == "sftp" ]; then
   $($TERMINUS site connection-info --site=$SITE --env=$ENV --field=sftp_command 2> /dev/null)
@@ -452,6 +461,17 @@ if [ $OP == "install" ]; then
 
   # Remove existing site files if they exist
   if [ -d $ROOT ]; then
+    echo -n "The site at $ROOT already exists.  Are you sure you want to overwrite? (y/N): "; read -n 1 PROCEED
+    echo ""
+    if [ -z "$PROCEED" ]; then
+      exit
+    fi
+    if [ "$PROCEED" == "Y" ]; then
+      PROCEED=y
+    fi
+    if [ "$PROCEED" != "y" ]; then
+      exit
+    fi
     sudo rm -rf $ROOT
   fi
 
@@ -464,34 +484,40 @@ if [ $OP == "install" ]; then
   fi
 
   # Set install profile
+  VALID=no
   NEW_PROFS=""
   PROFS=$(ls $ROOT/profiles)
-  for P in $PROFS
-  do
+  for P in $PROFS; do
     if [ "$P" != "README.txt" ]; then
+      if [ "$P" == "$PROFILE" ]; then
+        VALID=yes
+      fi
       NEW_PROFS+="$P "
     fi
   done
-  PROFS=$NEW_PROFS
-  if [ ! -z "$PROFS" ]; then
-    echo ""
-    echo "The following install profiles are available:"
-    echo $PROFS
-    echo ""
-    echo -n "Enter the install profile: "; read PROFILE
-    if [ -z "$PROFILE" ]; then
-      exit
-    fi
-    VALID=no
-    for PROF in $PROFS; do
-      if [ "$PROF" == "$PROFILE" ]; then
-        VALID=yes
+  if [ -z "$PROFILE" ]; then
+    PROFS=$(echo $NEW_PROFS | xargs)
+    if [ ! -z "$PROFS" ]; then
+      echo ""
+      echo "The following install profiles are available:"
+      echo $PROFS
+      echo ""
+      echo -n "Enter the install profile: "; read PROFILE
+      if [ -z "$PROFILE" ]; then
+        exit
       fi
-    done
-    if [ "$VALID" == "no" ]; then
-      echo "$PROFILE is not a valid install profile."
-      exit
+      for PROF in $PROFS; do
+        if [ "$PROF" == "$PROFILE" ]; then
+          VALID=yes
+        fi
+      done
+    else
+      PROFILE="standard"
     fi
+  fi
+  if [[ "$PROFILE" != "standard" && "$VALID" == "no" ]]; then
+    echo "$PROFILE is not a valid install profile."
+    exit
   fi
 
   # Replace dashes with underscores in the site database name
@@ -872,9 +898,9 @@ if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; the
     PROXY=y
   fi
   if [ "$PROXY" == "y" ]; then
+    DOMAIN=$($TERMINUS site hostnames list --site=$SITE --env=$ENV | head -4 | tail -1 | xargs | cut -d' ' -f1 2> /dev/null)
     $DRUSH dl -n stage_file_proxy
     $DRUSH en -y stage_file_proxy
-    DOMAIN=$(echo $($TERMINUS site hostnames list --site=$SITE --env=$ENV) | cut -d" " -f4 2> /dev/null)
     if [ ! -z "$DOMAIN" ]; then
       if [ $VER == 8 ]; then
         $DRUSH cset stage_file_proxy.settings hotlink true -y
@@ -923,8 +949,23 @@ if [ $OP == "install" ]; then
 
   # Output final message
   echo ""
-  echo "Make sure '192.168.99.100 $SITE_ENV.site' exists in your local hosts file and then open http://$SITE_ENV.site in your browser."
-  echo "The local hosts file is located at /etc/hosts (MAC/BSD/Linux) or C:\Windows\System32\drivers\etc\hosts (Windows)."
+  IFCONFIG=$(which ifconfig)
+  if [ -z "$IFCONFIG" ]; then
+    if [ -f /sbin/ifconfig ]; then
+      IFCONFIG=/sbin/ifconfig
+    fi
+  fi
+  PRIVATE_IP=""
+  if [ ! -z "$IFCONFIG" ]; then
+    PRIVATE_IP=$($IFCONFIG | grep "inet addr:192" | cut -d: -f2 | xargs | cut -d' ' -f1)
+  fi
+  if [ -z "$PRIVATE_IP" ]; then
+    echo "Unable to determine the class C private ip address.  Configure Vagrantfile to enable a private network."
+    echo "Example: config.vm.network \"private_network\", ip: \"192.168.33.10\""
+  else
+    echo "Make sure '$PRIVATE_IP $SITE_ENV.site' exists in your local hosts file and then open http://$SITE_ENV.site in your browser."
+    echo "The local hosts file is located at /etc/hosts (MAC/BSD/Linux) or C:\Windows\System32\drivers\etc\hosts (Windows)."
+  fi
   echo ""
 fi
 
