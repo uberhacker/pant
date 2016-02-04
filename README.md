@@ -39,6 +39,10 @@
 
     Download the latest database backup from the dev environment for the current Drupal site
 
+  *pant domain*
+
+    Print the Pantheon domain for the dev environment of the current Drupal site
+
   *pant files*
 
     Download the latest files backup from the dev environment for the current Drupal site
