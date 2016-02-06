@@ -104,6 +104,8 @@ Usage:
   [access|error] are only necessary for pant log.
 
 Examples:
+  pant aliases
+    Print a summary of all Pantheon aliases
   pant backup
     Create a backup of the dev environment for the current Drupal site
   pant code
@@ -136,7 +138,7 @@ Examples:
 if test $1; then
   OP=$1
   OP_FOUND=n
-  OPS="backup code db domain files fix install log logout sftp sites sync uninstall"
+  OPS="aliases backup code db domain files fix install log logout sftp sites sync uninstall"
   for O in $OPS; do
     if [ "$OP" == "$O" ]; then
       OP_FOUND=y
@@ -284,6 +286,12 @@ if [ -z "$WHOAMI" ]; then
   if [ -f $HOME/.terminus/tokens/$EMAIL ]; then
     rm -f $HOME/.terminus/tokens/$EMAIL
   fi
+  exit
+fi
+
+# Print a summary of Pantheon aliases
+if [ $OP == "aliases" ]; then
+  $TERMINUS sites aliases --print | grep \$aliases | cut -d"'" -f2 | sort
   exit
 fi
 
