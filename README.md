@@ -29,7 +29,7 @@
 ###Examples:
   *pant aliases*
 
-    Print a summary of Pantheon aliases
+    Print a summary of all Pantheon aliases
 
   *pant backup*
 
