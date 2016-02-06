@@ -27,6 +27,10 @@
   *[access|error] are only necessary for pant log.*
 
 ###Examples:
+  *pant aliases*
+
+    Print a summary of Pantheon aliases
+
   *pant backup*
 
     Create a backup of the dev environment for the current Drupal site
