@@ -44,11 +44,19 @@ if [ -d $HOME/.composer ]; then
 fi
 DRUSH=$(which drush)
 if [ $? == 1 ]; then
-  composer global require drush/drush:dev-master
+  if [ -f $HOME/.composer/vendor/bin/drush ]; then
+    DRUSH="$HOME/.composer/vendor/bin/drush"
+  else
+    composer global require drush/drush:dev-master
+  fi
 fi
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
-  composer global require pantheon-systems/cli
+  if [ -f $HOME/.composer/vendor/bin/terminus ]; then
+    TERMINUS="$HOME/.composer/vendor/bin/terminus"
+  else
+    composer global require pantheon-systems/cli
+  fi
 fi
 GIT=$(which git)
 if [ $? == 1 ]; then
@@ -56,9 +64,6 @@ if [ $? == 1 ]; then
   GIT=$(which git)
 fi
 if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
-  export PATH=$HOME/.composer/vendor/bin:$PATH
-  DRUSH=$(which drush)
-  TERMINUS=$(which terminus)
   echo "export PATH=\$HOME/.composer/vendor/bin:\$PATH" >> $HOME/.bashrc
 fi
 if [ ! -d /var/www ]; then
