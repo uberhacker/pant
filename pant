@@ -43,8 +43,8 @@ if [[ ! -f "$HOME/.my.cnf" || -z "$(grep '^password=' $HOME/.my.cnf 2> /dev/null
   echo "[client]" >> $HOME/.my.cnf
   echo "password=$MYSQL_ROOT_PW" >> $HOME/.my.cnf
 else
-  MYSQL_ROOT_PW=$(grep ^password $HOME/.my.cnf | cut -d= -f2 2> /dev/null)
-  if [ -z "$MYSQL_ROOT_PW" ]; then
+  MYSQL_ROOT_PW=$(grep ^password $HOME/.my.cnf | cut -d= -f2)
+  if [ $? == 1 ]; then
     echo "Unable to retrieve MySQL root password."
     exit 1
   fi
@@ -570,9 +570,9 @@ if [ $OP == "install" ]; then
       echo "The following install profiles are available:"
       echo $PROFS
       echo ""
-      echo -n "Enter the install profile: "; read PROFILE
+      echo -n "Enter the install profile [standard]: "; read PROFILE
       if [ -z "$PROFILE" ]; then
-        exit 1
+        PROFILE="standard"
       fi
       for PROF in $PROFS; do
         if [ "$PROF" == "$PROFILE" ]; then
