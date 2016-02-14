@@ -1,39 +1,85 @@
 #!/bin/bash
 
-# Check for prerequisites and install, if necessary
+# Check if sudo is installed.
 SUDO=$(which sudo)
-if [ -z "$SUDO" ]; then
+if [ $? == 1 ]; then
   sudo apt-get install sudo -y
 fi
-PHP_PID=$(pidof php5-fpm)
+
+# Check if php5-fpm is installed.
+PHP=$(dpkg -l | grep php5-fpm 2> /dev/null)
+if [ -z "$PHP" ]; then
+  sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+fi
+
+# Check if php5-fpm is running.
+PHP_PID=$(pidof php5-fpm 2> /dev/null)
 if [ -z "$PHP_PID" ]; then
-  PHP=$(dpkg -l | grep php5)
-  if [ -z "$PHP" ]; then
-    sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
-  fi
+  sudo service php5-fpm start
 fi
-MYSQL_PID=$(pidof mysqld)
+
+# Check if mysql, mariadb or percona servers are installed.
+MYSQL=$(dpkg -l | grep mysql-server 2> /dev/null)
+MARIADB=$(dpkg -l | grep mariadb-server 2> /dev/null)
+PERCONA=$(dpkg -l | grep percona-server 2> /dev/null)
+if [[ -z "$MYSQL" && -z "$MARIADB" && -z "$PERCONA" ]]; then
+  sudo apt-get install mariadb-server -y
+fi
+
+# Check if mysql is running.
+MYSQL_PID=$(pidof mysqld 2> /dev/null)
 if [ -z "$MYSQL_PID" ]; then
-  MYSQL=$(dpkg -l | grep mysql-server)
-  MARIADB=$(dpkg -l | grep mariadb-server)
-  PERCONA=$(dpkg -l | grep percona-server)
-  if [[ -z "$MYSQL" && -z "$MARIADB" && -z "$PERCONA" ]]; then
-    sudo debconf-set-selections <<< 'mariadb-server mariadb-server/root_password password root'
-    sudo debconf-set-selections <<< 'mariadb-server mariadb-server/root_password_again password root'
-    sudo apt-get install mariadb-server -y
-  fi
+  sudo service mysql start
 fi
+
+# Prompt for the MySQL root password, if necessary.
+if [[ ! -f "$HOME/.my.cnf" || -z "$(grep '^password=' $HOME/.my.cnf 2> /dev/null)" ]]; then
+  echo -n "Enter the MySQL root password: "; read -s MYSQL_ROOT_PW
+  echo -n "Confirm the MySQL root password: "; read -s MYSQL_ROOT_PW_CONFIRM
+  if [ "$MYSQL_ROOT_PW" != "$MYSQL_ROOT_PW_CONFIRM" ]; then
+    echo "Passwords do not match."
+    exit 1
+  fi
+  echo "password=$MYSQL_ROOT_PW" >> $HOME/.my.cnf
+else
+  while read line; do
+    for pair in $line; do
+      set -- $(echo $pair | tr '=' ' ')
+      if [ "$1" == "password" ]; then
+        MYSQL_ROOT_PW=${line#"$1="}
+      fi
+    done
+  done < $HOME/.my.cnf
+fi
+
+# Check if curl is installed.
 CURL=$(which curl)
-if [ -z "$CURL" ]; then
+if [ $? == 1 ]; then
   sudo apt-get install curl -y
 fi
-NGINX_PID=$(pidof nginx)
-if [ -z "$NGINX_PID" ]; then
-  NGINX=$(dpkg -l | grep nginx)
-  if [ -z "$NGINX" ]; then
-    sudo apt-get install nginx -y
+
+# Stop apache2 if it is running.
+APACHE=$(dpkg -l | grep apache2 2> /dev/null)
+if [ ! -z "$APACHE" ]; then
+  APACHE_PID=$(pidof apache2 2> /dev/null)
+  if [ ! -z "$APACHE_PID" ]; then
+    sudo service apache2 stop
   fi
 fi
+
+# Check if nginx is installed.
+NGINX=$(dpkg -l | grep nginx 2> /dev/null)
+if [ -z "$NGINX" ]; then
+  sudo apt-get install nginx -y
+fi
+
+# Check if nginx is running.
+NGINX_PID=$(pidof nginx 2> /dev/null)
+if [ -z "$NGINX_PID" ]; then
+  sudo service nginx start
+fi
+
+# Check if composer is installed.
 COMPOSER=$(which composer)
 if [ $? == 1 ]; then
   curl -sS https://getcomposer.org/installer | php
@@ -42,6 +88,8 @@ fi
 if [ -d $HOME/.composer ]; then
   sudo chown -R $(whoami):$(whoami) $HOME/.composer
 fi
+
+# Check if drush is installed.
 DRUSH=$(which drush)
 if [ $? == 1 ]; then
   if [ -f $HOME/.composer/vendor/bin/drush ]; then
@@ -50,6 +98,8 @@ if [ $? == 1 ]; then
     composer global require drush/drush:dev-master
   fi
 fi
+
+# Check if terminus is installed.
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
   if [ -f $HOME/.composer/vendor/bin/terminus ]; then
@@ -58,43 +108,29 @@ if [ $? == 1 ]; then
     composer global require pantheon-systems/cli
   fi
 fi
+
+# Check if git is installed.
 GIT=$(which git)
 if [ $? == 1 ]; then
   sudo apt-get install git -y
   GIT=$(which git)
 fi
+
+# Make sure PATH environment variable is set.
 if [ -z "$(grep 'composer/vendor/bin' $HOME/.bashrc)" ]; then
   echo "export PATH=\$HOME/.composer/vendor/bin:\$PATH" >> $HOME/.bashrc
 fi
+
+# Make sure the /var/www directory exists.
 if [ ! -d /var/www ]; then
   sudo mkdir /var/www
 fi
 
-# Fix permissions
+# Fix permissions.
 sudo chmod 775 /var/www
 sudo chown $(whoami):www-data /var/www
 
-# Make sure all LEMP stack services are running
-PHP_PID=$(pidof php5-fpm)
-if [ -z "$PHP_PID" ]; then
-  sudo service php5-fpm start
-fi
-MYSQL_PID=$(pidof mysqld)
-if [ -z "$MYSQL_PID" ]; then
-  sudo service mysql start
-fi
-APACHE=$(dpkg -l | grep apache2)
-if [ ! -z "$APACHE" ]; then
-  APACHE_PID=$(pidof apache2)
-  if [ ! -z "$APACHE_PID" ]; then
-    sudo service apache2 stop
-  fi
-fi
-NGINX_PID=$(pidof nginx)
-if [ -z "$NGINX_PID" ]; then
-  sudo service nginx start
-fi
-
+# Help for command usage.
 USAGE=$'
 PANT - Pantheon Administration; Not Terminus
 
@@ -139,7 +175,7 @@ Examples:
     Uninstall the dev environment for the Pantheon Site Name my-site
 '
 
-# Get the operation
+# Get the operation.
 if test $1; then
   OP=$1
   OP_FOUND=n
@@ -152,41 +188,41 @@ if test $1; then
   if [ "$OP_FOUND" == "n" ]; then
     echo "Invalid operation argument $OP."
     echo "$USAGE"
-    exit
+    exit 1
   fi
 else
   echo "$USAGE"
-  exit
+  exit 1
 fi
 
-# Logout of Terminus
+# Logout of Terminus.
 if [ $OP == "logout" ]; then
   $TERMINUS auth logout 2> /dev/null
   if [ -f $HOME/.terminus/pant ]; then
     rm -f $HOME/.terminus/pant
   fi
-  exit
+  exit 0
 fi
 
-# Get the environment
+# Get the environment.
 ENV=dev
 if test $3; then
   ENV=$3
 fi
 
-# Get the install profile
+# Get the install profile.
 PROFILE=""
 if test $4; then
   PROFILE=$4
 fi
 
-# Get the multisite
+# Get the multisite.
 MULTISITE="default"
 if test $5; then
   MULTISITE=$5
 fi
 
-# Get the Pantheon Site Name
+# Get the Pantheon Site Name.
 SITE=""
 if test $2; then
   SITE=$2
@@ -200,13 +236,13 @@ else
   fi
 fi
 
-# Terminus authentication
+# Terminus authentication.
 EMAIL=""
 PASSWORD=""
 HTTPUSER=""
 HTTPPASS=""
 TOKEN=""
-# Retrieve stored Terminus credentials
+# Retrieve stored Terminus credentials.
 if [ -f $HOME/.terminus/pant ]; then
   while read line; do
     for pair in $line; do
@@ -230,10 +266,10 @@ if [ -f $HOME/.terminus/pant ]; then
   done < $HOME/.terminus/pant
 fi
 
-# Terminus authentication prompts
+# Terminus authentication prompts.
 WHOAMI=$($TERMINUS auth whoami 2> /dev/null)
 if [ -z "$WHOAMI" ]; then
-  TERMINUS_VER=$(echo $($TERMINUS cli version --format=json 2> /dev/null) | grep -Po '"version":.*?[^\\]"' | cut -d: -f2 | tr -d '"')
+  TERMINUS_VER=$(echo $($TERMINUS cli version --format=json 2> /dev/null) | grep -Po '"version":.*?[^\\]"' | cut -d: -f2 | tr -d '"' 2> /dev/null)
   if [ -z "$HTTPUSER" ]; then
     echo -n "Enter the HTTP Basic Authentication username: "; read HTTPUSER
     if [ ! -z "$HTTPUSER" ]; then
@@ -250,39 +286,39 @@ if [ -z "$WHOAMI" ]; then
   if [ -z "$EMAIL" ]; then
     echo -n "Enter your Pantheon dashboard email address: "; read EMAIL
     if [ -z "$EMAIL" ]; then
-      exit
+      exit 1
     else
       echo "email=$EMAIL" >> $HOME/.terminus/pant
     fi
   fi
   if [ -z "$TOKEN" ]; then
     if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1) == "0.10.2" ]; then
-      # Grab the machine token if it exists
+      # Grab the machine token if it exists.
       if [ -f $HOME/.terminus/tokens/$EMAIL ]; then
-        TOKEN=$(grep -Po '"token":.*?[^\\]"' $HOME/.terminus/tokens/$EMAIL | cut -d: -f2 | tr -d '"')
+        TOKEN=$(grep -Po '"token":.*?[^\\]"' $HOME/.terminus/tokens/$EMAIL | cut -d: -f2 | tr -d '"' 2> /dev/null)
       else
         echo -n "Enter your machine token: "; read TOKEN
         if [ -z "$TOKEN" ]; then
-          exit
+          exit 1
         fi
       fi
       echo "token=$TOKEN" >> $HOME/.terminus/pant
     fi
   fi
-  # Change email to match commits to Pantheon
+  # Change email to match commits to Pantheon.
   GITEMAIL=$($GIT config --get user.email)
   if [ "$GITEMAIL" != "$EMAIL" ]; then
     $GIT config --global user.email $EMAIL
   fi
-  # Login based on detected Terminus version
-  if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1) == "0.10.2" ]; then
+  # Login based on detected Terminus version.
+  if [ $(printf "$TERMINUS_VER\n0.10.2" | sort -V | head -1 2> /dev/null) == "0.10.2" ]; then
     $TERMINUS auth login --machine-token=$TOKEN 2> /dev/null
   else
     $TERMINUS auth login $EMAIL 2> /dev/null
   fi
 fi
 
-# Remove saved credentials if unable to login
+# Remove saved credentials if unable to login.
 WHOAMI=$($TERMINUS auth whoami 2> /dev/null)
 if [ -z "$WHOAMI" ]; then
   if [ -f $HOME/.terminus/pant ]; then
@@ -291,42 +327,43 @@ if [ -z "$WHOAMI" ]; then
   if [ -f $HOME/.terminus/tokens/$EMAIL ]; then
     rm -f $HOME/.terminus/tokens/$EMAIL
   fi
-  exit
+  echo "Unable to login to Pantheon."
+  exit 1
 fi
 
-# Print a summary of Pantheon aliases
+# Print a summary of Pantheon aliases.
 if [ $OP == "aliases" ]; then
   $TERMINUS sites aliases --print | grep \$aliases | cut -d"'" -f2 | sort
-  exit
+  exit 0
 fi
 
-# Get terminus site listing
+# Get terminus site listing.
 if [ $OP == "sites" ]; then
   $TERMINUS sites list 2> /dev/null
-  exit
+  exit 0
 fi
 
-# Prompt for Pantheon Site Name
+# Prompt for Pantheon Site Name.
 if [ -z "$SITE" ]; then
   $TERMINUS sites list 2> /dev/null
   echo -n "Enter the Pantheon Site Name: "; read SITE
   if [ -z "$SITE" ]; then
-    exit
+    exit 1
   fi
 fi
 
-# Validate the Pantheon Site Name
+# Validate the Pantheon Site Name.
 ID=$($TERMINUS site info --site=$SITE --field=id 2> /dev/null)
 if [ -z "$ID" ]; then
   echo "$SITE is not a valid Pantheon Site Name."
-  exit
+  exit 1
 fi
 
-# Set the site environment
+# Set the site environment.
 SITE_ENV=$SITE-$ENV
 ROOT=/var/www/$SITE_ENV
 
-# Display the web server log
+# Display the web server log.
 if [ $OP == "log" ]; then
   TYPE=error
   if test $4; then
@@ -334,42 +371,43 @@ if [ $OP == "log" ]; then
   fi
   if [[ "$TYPE" != "access" && "$TYPE" != "error" ]]; then
     echo "Valid options are access or error.  The default value is error."
-    exit
+    exit 1
   fi
   if [ -f /var/log/nginx/$SITE_ENV-$TYPE.log ]; then
     sudo less /var/log/nginx/$SITE_ENV-$TYPE.log
   else
     echo "Log file /var/log/nginx/$SITE_ENV-$TYPE.log does not exist."
+    exit 1
   fi
-  exit
+  exit 0
 fi
 
-# Print the Pantheon domain
+# Print the Pantheon domain.
 if [ $OP == "domain" ]; then
   DOMAIN=$($TERMINUS site hostnames list --site=$SITE --env=$ENV | head -4 | tail -1 | xargs | cut -d' ' -f1 2> /dev/null)
   echo $DOMAIN
-  exit
+  exit 0
 fi
 
-# Login on Pantheon via sftp
+# Login on Pantheon via sftp.
 if [ $OP == "sftp" ]; then
   $($TERMINUS site connection-info --site=$SITE --env=$ENV --field=sftp_command 2> /dev/null)
-  exit
+  exit 0
 fi
 
-# Site backup
+# Site backup.
 if [ $OP == "backup" ]; then
   $TERMINUS site backups create --site=$SITE --env=$ENV 2> /dev/null
-  exit
+  exit 0
 fi
 
-# Set multisite
+# Set multisite.
 if [ $OP != "install" ]; then
   MULTISITES=""
   DEFAULTSITE="default"
   if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
-    exit
+    exit 1
   fi
   cd $ROOT/sites
   SITES=$(echo $(ls -d */) | sed 's,/,,g')
@@ -405,27 +443,27 @@ if [ $OP != "install" ]; then
     done
     if [ "$VALID" == "no" ]; then
       echo "$MULTISITE is not a valid multisite."
-      exit
+      exit 1
     fi
   fi
 
-  # Define drush based on multisite
+  # Define drush based on multisite.
   if [ "$MULTISITE" != "default" ]; then
     DRUSH="$DRUSH -l $MULTISITE"
   fi
 fi
 
-# Get the latest code changes
+# Get the latest code changes.
 if [[ $OP == "code" || $OP == "sync" ]]; then
   if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
-    exit
+    exit 1
   fi
   cd $ROOT
   $GIT pull
 fi
 
-# Fix permissions and tidy up the database
+# Fix permissions and tidy up the database.
 if [ $OP == "fix" ]; then
   if [ -d $ROOT ]; then
     cd $ROOT
@@ -445,7 +483,7 @@ if [ $OP == "fix" ]; then
       sudo chown -R $(whoami):www-data sites/$MULTISITE/modules/custom/features
       sudo chmod -R g+w sites/$MULTISITE/modules/custom/features
     fi
-    # Determine the Drupal version
+    # Determine the Drupal version.
     VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1)
     if [ $VER == 8 ]; then
       $DRUSH cr
@@ -454,49 +492,50 @@ if [ $OP == "fix" ]; then
     fi
   else
     echo "The site at $ROOT does not exist."
+    exit 1
   fi
-  exit
+  exit 0
 fi
 
-# Install a new Drupal site
+# Install a new Drupal site.
 if [ $OP == "install" ]; then
-  # Git command to clone the site environment
+  # Git command to clone the site environment.
   GIT_CLONE=$($TERMINUS site connection-info --site=$SITE --env=$ENV --field=git_command 2> /dev/null)
 
-  # Validate the git command
+  # Validate the git command.
   if [ -z "$GIT_CLONE" ]; then
     echo "$ENV is not a cloneable Pantheon environment."
-    exit
+    exit 1
   fi
 
-  # Append environment to the git clone command
+  # Append environment to the git clone command.
   GIT_CLONE="$GIT_CLONE-$ENV"
 
-  # Remove existing site files if they exist
+  # Remove existing site files if they exist.
   if [ -d $ROOT ]; then
     echo -n "The site at $ROOT already exists.  Are you sure you want to overwrite? (y/N): "; read -n 1 PROCEED
     echo ""
     if [ -z "$PROCEED" ]; then
-      exit
+      exit 0
     fi
     if [ "$PROCEED" == "Y" ]; then
       PROCEED=y
     fi
     if [ "$PROCEED" != "y" ]; then
-      exit
+      exit 0
     fi
     sudo rm -rf $ROOT
   fi
 
-  # Clone the Pantheon git repository
+  # Clone the Pantheon git repository.
   cd /var/www
   $GIT_CLONE
   if [ ! -d $ROOT ]; then
     echo "Clone of git repository for the $ENV environment of Pantheon site $SITE failed."
-    exit
+    exit 1
   fi
 
-  # Set install profile
+  # Set install profile.
   VALID=no
   NEW_PROFS=""
   PROFS=$(ls $ROOT/profiles)
@@ -517,7 +556,7 @@ if [ $OP == "install" ]; then
       echo ""
       echo -n "Enter the install profile: "; read PROFILE
       if [ -z "$PROFILE" ]; then
-        exit
+        exit 1
       fi
       for PROF in $PROFS; do
         if [ "$PROF" == "$PROFILE" ]; then
@@ -530,31 +569,69 @@ if [ $OP == "install" ]; then
   fi
   if [[ "$PROFILE" != "standard" && "$VALID" == "no" ]]; then
     echo "$PROFILE is not a valid install profile."
-    exit
+    exit 1
   fi
 
-  # Replace dashes with underscores in the site database name
+  # Replace dashes with underscores in the site database name.
   DBNAME=${SITE_ENV//-/_}
 
   if [ ! -f /etc/nginx/sites-available/$SITE_ENV ]; then
-    # Create MySQL/MariaDB database
-    echo "drop database if exists $DBNAME;" | mysql -uroot -proot
-    echo "create database $DBNAME;" | mysql -uroot -proot
-    echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot -proot
-    echo "flush privileges;" | mysql -uroot -proot
+    # Create MySQL/MariaDB database.
+    if [ -z "$MYSQL_ROOT_PW" ]; then
+      echo "drop database if exists $DBNAME;" | mysql -uroot
+      echo "create database $DBNAME;" | mysql -uroot
+      echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot
+      echo "flush privileges;" | mysql -uroot
+    else
+      echo "drop database if exists $DBNAME;" | mysql -uroot -p$MYSQL_ROOT_PW
+      echo "create database $DBNAME;" | mysql -uroot -p$MYSQL_ROOT_PW
+      echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot -p$MYSQL_ROOT_PW
+      echo "flush privileges;" | mysql -uroot -p$MYSQL_ROOT_PW
+    fi
 
-    # Create example Nginx Drupal config
+    # Create example Nginx Drupal config.
     if [ ! -f /etc/nginx/conf.d/drupal.conf.example ]; then
       sudo sh -c 'cat << "EOF" > /etc/nginx/conf.d/drupal.conf.example
-# Example Drupal Recipe
-# See https://www.nginx.com/resources/wiki/start/topics/recipes/drupal/
 server {
     listen 80;
-    server_name example.com;
-    root /var/www/drupal7;
+
+    server_name {{ site }};
+    access_log /var/log/nginx/{{ site }}-access.log;
+    error_log /var/log/nginx/{{ site }}-error.log info;
+    root /var/www/{{ site }};
     index index.php;
-    access_log /var/log/nginx/drupal7-access.log;
-    error_log /var/log/nginx/drupal7-error.log;
+
+    location / {
+        # try_files $uri @rewrite; # For Drupal <= 6
+        try_files $uri /index.php?$query_string;
+    }
+
+    # Direct access to PHP files in the vendor directory is not allowed.
+    location ~ /vendor/.*\\.php$ {
+        deny all;
+        return 404;
+    }
+
+    # Use fastcgi for all php files.
+    location ~ \\.php$|^/update.php {
+        #NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
+        fastcgi_split_path_info ^(.+?\\.php)(|/.*)$;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $request_filename;
+        fastcgi_intercept_errors on;
+        fastcgi_read_timeout 120;
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9000;
+        #fastcgi_pass unix:/var/run/php5-fpm.sock;
+    }
+
+    location @rewrite {
+        rewrite ^ /index.php;
+    }
+
+    location ~ ^/sites/.*/files/styles/ {
+        try_files $uri @rewrite;
+    }
 
     location = /favicon.ico {
         log_not_found off;
@@ -567,72 +644,53 @@ server {
         access_log off;
     }
 
-    # Very rarely should these ever be accessed outside of your lan
-    location ~* \\.(txt|log)$ {
-        allow 192.168.0.0/16;
-        deny all;
-    }
-
-    location ~ \\..*/.*\\.php$ {
-        return 403;
-    }
-
-    location ~ ^/sites/.*/private/ {
-        return 403;
-    }
-
-    # Block access to "hidden" files and directories whose names begin with a
-    # period. This includes directories used by version control systems such
-    # as Subversion or Git to store control files.
     location ~ (^|/)\\. {
         return 403;
-    }
-
-    location / {
-        # try_files $uri @rewrite; # For Drupal <= 6
-        try_files $uri /index.php?$query_string; # For Drupal >= 7
-    }
-
-    location @rewrite {
-        rewrite ^/(.*)$ /index.php?q=$1;
-    }
-
-    location ~ \\.php$ {
-        fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        #NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
-        include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME $request_filename;
-        fastcgi_intercept_errors on;
-        fastcgi_pass unix:/var/run/php5-fpm.sock;
-        #fastcgi_pass 127.0.0.1:9000;
-        fastcgi_index index.php;
-    }
-
-    # Fighting with Styles? This little gem is amazing.
-    # location ~ ^/sites/.*/files/imagecache/ { # For Drupal <= 6
-    location ~ ^/sites/.*/files/styles/ { # For Drupal >= 7
-        try_files $uri @rewrite;
     }
 
     location ~* \\.(js|css|png|jpg|jpeg|gif|ico)$ {
         expires max;
         log_not_found off;
     }
+
+    gzip on;
+    gzip_proxied any;
+    gzip_static on;
+    gzip_http_version 1.0;
+    gzip_disable "MSIE [1-6]\\.";
+    gzip_vary on;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/javascript
+        application/x-javascript
+        application/json
+        application/xml
+        application/xml+rss
+        application/xhtml+xml
+        application/x-font-ttf
+        application/x-font-opentype
+        image/svg+xml
+        image/x-icon;
+    gzip_buffers 16 8k;
+    gzip_min_length 512;
 }
 EOF'
     fi
 
-    # Create Nginx virtual host
+    # Create nginx virtual host.
     cp /etc/nginx/conf.d/drupal.conf.example /tmp/$SITE_ENV
-    sed -i "s,example.com,$SITE_ENV.site,g" /tmp/$SITE_ENV
-    sed -i "s,drupal7,$SITE_ENV,g" /tmp/$SITE_ENV
+    sed -i "s,{{ site }},$SITE_ENV,g" /tmp/$SITE_ENV
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
     sudo ln -s /etc/nginx/sites-available/$SITE_ENV /etc/nginx/sites-enabled/$SITE_ENV
   fi
 
-  # Fix file permissions
+  # Fix file permissions.
   cd $ROOT/sites
-  SITES=$(echo $(ls -d */) | sed 's,/,,g')
+  SITES=$(echo $(ls -d */) | sed 's,/,,g' 2> /dev/null)
   for S in $SITES; do
     sudo chmod -R ug+w $ROOT/sites/$S
     if [ -d "$ROOT/sites/$S/files" ]; then
@@ -640,20 +698,20 @@ EOF'
     fi
   done
 
-  # Replace placeholder credentials if needed
+  # Replace placeholder credentials if needed.
   SETTINGS="$ROOT/sites/$MULTISITE/settings.php"
   sed -i "s/DATABASE/$DBNAME/g" $SETTINGS
   sed -i "s/USERNAME/drupal/g" $SETTINGS
   sed -i "s/PASSWORD/drupal/g" $SETTINGS
 
-  # Perform the drush site install
+  # Perform the drush site install.
   cd $ROOT
   $DRUSH site-install $PROFILE --account-name=admin --account-pass=admin --db-url=mysql://drupal:drupal@localhost/$DBNAME --site-name=$SITE_ENV --sites-subdir=$MULTISITE -v -y
 
-  # Determine the Drupal version
-  VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1)
+  # Determine the Drupal version.
+  VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1 2> /dev/null)
 
-  # Make sure organizational directories exist
+  # Make sure organizational directories exist.
   if [ $VER == 8 ]; then
     if [ ! -d $ROOT/modules/contrib ]; then
       mkdir $ROOT/modules/contrib
@@ -679,7 +737,7 @@ EOF'
     mkdir $ROOT/sites/default/files
   fi
 
-  # Fix file permissions
+  # Fix file permissions.
   for S in $SITES; do
     sudo chmod -R ug+w $ROOT/sites/$S
     if [ -d "$ROOT/sites/$S/files" ]; then
@@ -687,7 +745,7 @@ EOF'
     fi
   done
 
-  # Create settings.local.php
+  # Create settings.local.php.
   LOCALSETTINGS=${SETTINGS//settings.php/settings.local.php}
   cp $SETTINGS $LOCALSETTINGS
   $GIT checkout $SETTINGS
@@ -705,7 +763,7 @@ EOF'
     sudo mv -f /tmp/settings.local.php $LOCALSETTINGS
   fi
 
-  # Install registry rebuild
+  # Install registry rebuild.
   if [ $VER == 7 ]; then
     if [ ! -f "$HOME/.drush/registry_rebuild/registry_rebuild.php" ]; then
       $DRUSH dl registry_rebuild -y
@@ -713,20 +771,20 @@ EOF'
     fi
   fi
 else
-  # Determine the Drupal version
-  VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1)
+  # Determine the Drupal version.
+  VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1 2> /dev/null)
 fi
 
-# Database related operations
+# Database related operations.
 if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
-    exit
+    exit 1
   fi
   cd $ROOT
   SETTINGS="$ROOT/sites/$MULTISITE/settings.php"
   LOCALSETTINGS=${SETTINGS//settings.php/settings.local.php}
-  # Download and load the latest database backup if it exists
+  # Download and load the latest database backup if it exists.
   DB=$($TERMINUS site backups get --site=$SITE --env=$ENV --element=db --latest 2> /dev/null)
   if [ ! -z "$DB" ]; then
     LABEL=${DB:0:11}
@@ -740,7 +798,7 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
     $DRUSH sql-drop -y
     echo "Loading $NEW_DB..."
     $DRUSH sqlc < $NEW_DB
-    # Make sure the Drupal admin user login is admin/admin
+    # Make sure the Drupal admin user login is admin/admin.
     $DRUSH sqlq "update users set name = 'admin' where uid = 1"
     $DRUSH upwd admin --password=admin
     if [ $VER == 8 ]; then
@@ -750,16 +808,16 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
     fi
   fi
 
-  # Make sure the php5-redis package is installed
-  PHP5_REDIS=$(dpkg -l | grep php5-redis)
+  # Make sure the php5-redis package is installed.
+  PHP5_REDIS=$(dpkg -l | grep php5-redis 2> /dev/null)
   if [ -z "$PHP5_REDIS" ]; then
     sudo apt-get install php5-redis -y
   fi
 
-  # Make sure the redis-server service is running
-  REDIS_PID=$(pidof redis-server)
+  # Make sure the redis-server service is running.
+  REDIS_PID=$(pidof redis-server 2> /dev/null)
   if [ -z "$REDIS_PID" ]; then
-    REDIS_PACKAGE=$(dpkg -l | grep redis-server)
+    REDIS_PACKAGE=$(dpkg -l | grep redis-server 2> /dev/null)
     if [ -z "$REDIS_PACKAGE" ]; then
       sudo apt-get install redis-server -y
     else
@@ -767,8 +825,8 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
     fi
   fi
 
-  # Prompt to enable Redis only if the service is running
-  REDIS_PID=$(pidof redis-server)
+  # Prompt to enable Redis only if the service is running.
+  REDIS_PID=$(pidof redis-server 2> /dev/null)
   if [ ! -z "$REDIS_PID" ]; then
     echo -n "Would you like to enable Redis? (Y/n): "; read -n 1 REDIS
     echo ""
@@ -784,12 +842,12 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
       else
         MOD_SEARCH_DIR=sites/
       fi
-      REDISAUTOLOAD=$(find $MOD_SEARCH_DIR -name redis.autoload.inc)
-      REDISLOCK=$(find $MOD_SEARCH_DIR -name redis.lock.inc)
+      REDISAUTOLOAD=$(find $MOD_SEARCH_DIR -name redis.autoload.inc 2> /dev/null)
+      REDISLOCK=$(find $MOD_SEARCH_DIR -name redis.lock.inc 2> /dev/null)
       if [[ -z "$REDISAUTOLOAD" || -z "$REDISLOCK" ]]; then
         $DRUSH dl -y redis
-        REDISAUTOLOAD=$(find $MOD_SEARCH_DIR -name redis.autoload.inc)
-        REDISLOCK=$(find $MOD_SEARCH_DIR -name redis.lock.inc)
+        REDISAUTOLOAD=$(find $MOD_SEARCH_DIR -name redis.autoload.inc 2> /dev/null)
+        REDISLOCK=$(find $MOD_SEARCH_DIR -name redis.lock.inc 2> /dev/null)
       fi
       $DRUSH en -y redis
 cat << EOF >> $LOCALSETTINGS
@@ -805,14 +863,14 @@ EOF
     fi
   fi
 
-  # Prompt to enable XHProf
+  # Prompt to enable XHProf.
   echo -n "Would you like to enable XHProf? (y/N): "; read -n 1 XHPROF
   echo ""
   if [ "$XHPROF" == "Y" ]; then
     XHPROF=y
   fi
   if [ "$XHPROF" == "y" ]; then
-    XHPROF_MOD=$(dpkg -l | grep php5-xhprof)
+    XHPROF_MOD=$(dpkg -l | grep php5-xhprof 2> /dev/null)
     if [ -z "$XHPROF_MOD" ]; then
       sudo apt-get install php5-xhprof -y
       sudo service php5-fpm restart
@@ -852,13 +910,13 @@ EOF
     fi
   fi
 
-  # Prompt to enable Xdebug
+  # Prompt to enable Xdebug.
   echo -n "Would you like to enable Xdebug? (y/N): "; read -n 1 XDEBUG
   echo ""
   if [ "$XDEBUG" == "Y" ]; then
     XDEBUG=y
   fi
-  XDEBUG_MOD=$(dpkg -l | grep php5-xdebug)
+  XDEBUG_MOD=$(dpkg -l | grep php5-xdebug 2> /dev/null)
   if [ "$XDEBUG" == "y" ]; then
     if [ -z "$XDEBUG_MOD" ]; then
       sudo apt-get install php5-xdebug -y
@@ -871,7 +929,7 @@ EOF
     fi
   fi
 
-  # Prompt to enable development modules
+  # Prompt to enable development modules.
   echo -n "Would you like to enable development modules? (y/N): "; read -n 1 DEVEL
   echo ""
   if [ "$DEVEL" == "Y" ]; then
@@ -887,7 +945,7 @@ EOF
     fi
   fi
 
-  # Disable unused/unwanted modules
+  # Disable unused/unwanted modules.
   if [ $VER == 8 ]; then
     $DRUSH pmu -y overlay
   else
@@ -895,13 +953,13 @@ EOF
   fi
 fi
 
-# File related operations
+# File related operations.
 if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; then
   if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
-    exit
+    exit 1
   fi
-  # Prompt to enable Stage File Proxy
+  # Prompt to enable Stage File Proxy.
   echo -n "Would you like to enable Stage File Proxy? (Y/n): "; read -n 1 PROXY
   echo ""
   if [ -z "$PROXY" ]; then
@@ -952,41 +1010,42 @@ if [[ $OP == "install" || $OP == "db" || $OP == "files" || $OP == "sync" ]]; the
   fi
 fi
 
-# Install specific operation
+# Install specific operation.
 if [ $OP == "install" ]; then
-  # Restart web services
+  # Restart web services.
   sudo service redis-server restart
   sudo service php5-fpm restart
   sudo service nginx restart
   sudo service mysql restart
 
-  # Output final message
+  # Output final message.
   echo ""
   IFCONFIG=$(which ifconfig)
-  if [ -z "$IFCONFIG" ]; then
+  if [ $? == 1 ]; then
     if [ -f /sbin/ifconfig ]; then
       IFCONFIG=/sbin/ifconfig
     fi
   fi
   PRIVATE_IP=""
   if [ ! -z "$IFCONFIG" ]; then
-    PRIVATE_IP=$($IFCONFIG | grep "inet addr:192" | cut -d: -f2 | xargs | cut -d' ' -f1)
+    PRIVATE_IP=$($IFCONFIG | grep "inet addr:192" | cut -d: -f2 | xargs | cut -d' ' -f1 2> /dev/null)
   fi
   if [ -z "$PRIVATE_IP" ]; then
     echo "Unable to determine the class C private ip address.  Configure Vagrantfile to enable a private network."
     echo "Example: config.vm.network \"private_network\", ip: \"192.168.33.10\""
   else
-    echo "Make sure '$PRIVATE_IP $SITE_ENV.site' exists in your local hosts file and then open http://$SITE_ENV.site in your browser."
+    echo "Make sure '$PRIVATE_IP $SITE_ENV' exists in your local hosts file and then open http://$SITE_ENV in your browser."
     echo "The local hosts file is located at /etc/hosts (MAC/BSD/Linux) or C:\Windows\System32\drivers\etc\hosts (Windows)."
   fi
   echo ""
+  exit 0
 fi
 
-# Uninstall specific operation
+# Uninstall specific operation.
 if [ $OP == "uninstall" ]; then
   if [ ! -d $ROOT ]; then
     echo "The site at $ROOT does not exist."
-    exit
+    exit 1
   fi
   echo -n "Are you sure you want to uninstall $SITE_ENV (y/N): "; read -n 1 REMOVE
   echo ""
@@ -994,22 +1053,27 @@ if [ $OP == "uninstall" ]; then
     REMOVE=y
   fi
   if [ "$REMOVE" == "y" ]; then
-    # Replace dashes with underscores in the site database name
+    # Replace dashes with underscores in the site database name.
     DBNAME=${SITE_ENV//-/_}
 
-    # Remove site files
+    # Remove site files.
     sudo rm -rf $ROOT
 
-    # Remove Nginx files
+    # Remove nginx files.
     sudo rm -f /etc/nginx/sites-enabled/$SITE_ENV
     sudo rm -f /etc/nginx/sites-available/$SITE_ENV
 
-    # Remove log files
+    # Remove log files.
     sudo rm -f /var/log/nginx/$SITE_ENV-access.log
     sudo rm -f /var/log/nginx/$SITE_ENV-error.log
 
-    # Remove database
-    echo "use mysql;revoke all on $DBNAME.* from drupal@localhost;" | mysql -uroot -proot
-    echo "drop database $DBNAME;" | mysql -uroot -proot
+    # Remove database.
+    if [ -z "$MYSQL_ROOT_PW" ]; then
+      echo "use mysql;revoke all on $DBNAME.* from drupal@localhost;" | mysql -uroot
+      echo "drop database $DBNAME;" | mysql -uroot
+    else
+      echo "use mysql;revoke all on $DBNAME.* from drupal@localhost;" | mysql -uroot -p$MYSQL_ROOT_PW
+      echo "drop database $DBNAME;" | mysql -uroot -p$MYSQL_ROOT_PW
+    fi
   fi
 fi
