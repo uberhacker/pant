@@ -40,16 +40,14 @@ if [[ ! -f "$HOME/.my.cnf" || -z "$(grep '^password=' $HOME/.my.cnf 2> /dev/null
     echo "Passwords do not match."
     exit 1
   fi
+  echo "[client]" >> $HOME/.my.cnf
   echo "password=$MYSQL_ROOT_PW" >> $HOME/.my.cnf
 else
-  while read line; do
-    for pair in $line; do
-      set -- $(echo $pair | tr '=' ' ')
-      if [ "$1" == "password" ]; then
-        MYSQL_ROOT_PW=${line#"$1="}
-      fi
-    done
-  done < $HOME/.my.cnf
+  MYSQL_ROOT_PW=$(grep ^password $HOME/.my.cnf | cut -d= -f2 2> /dev/null)
+  if [ -z "$MYSQL_ROOT_PW" ]; then
+    echo "Unable to retrieve MySQL root password."
+    exit 1
+  fi
 fi
 
 # Check if curl is installed.
@@ -127,8 +125,26 @@ if [ ! -d /var/www ]; then
 fi
 
 # Fix permissions.
-sudo chmod 775 /var/www
-sudo chown $(whoami):www-data /var/www
+sudo chmod -R ug+w /var/www
+sudo chown -R $(whoami):www-data /var/www
+
+# Function to add entry to the hosts file.
+# NOTE: In Windows, this only works from Git Bash run as administrator.
+function hosts() {
+  if [ "$OSTYPE" == "msys" ]; then
+    HOSTS=/C/Windows/System32/drivers/etc/hosts
+  else
+    HOSTS=/etc/hosts
+  fi
+  ENTRY=$(grep "^$1 $2" $HOSTS 2> /dev/null)
+  if [ -z "$ENTRY" ]; then
+    if [ "$OSTYPE" == "msys" ]; then
+      echo $'\r\n'"$1 $2" >> $HOSTS
+    else
+      sudo sh -c "echo '$1 $2' >> $HOSTS"
+    fi
+  fi
+}
 
 # Help for command usage.
 USAGE=$'
@@ -577,17 +593,10 @@ if [ $OP == "install" ]; then
 
   if [ ! -f /etc/nginx/sites-available/$SITE_ENV ]; then
     # Create MySQL/MariaDB database.
-    if [ -z "$MYSQL_ROOT_PW" ]; then
-      echo "drop database if exists $DBNAME;" | mysql -uroot
-      echo "create database $DBNAME;" | mysql -uroot
-      echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot
-      echo "flush privileges;" | mysql -uroot
-    else
-      echo "drop database if exists $DBNAME;" | mysql -uroot -p$MYSQL_ROOT_PW
-      echo "create database $DBNAME;" | mysql -uroot -p$MYSQL_ROOT_PW
-      echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot -p$MYSQL_ROOT_PW
-      echo "flush privileges;" | mysql -uroot -p$MYSQL_ROOT_PW
-    fi
+    echo "drop database if exists $DBNAME;" | mysql -uroot
+    echo "create database $DBNAME;" | mysql -uroot
+    echo "grant all on $DBNAME.* to drupal@localhost identified by 'drupal';" | mysql -uroot
+    echo "flush privileges;" | mysql -uroot
 
     # Create example Nginx Drupal config.
     if [ ! -f /etc/nginx/conf.d/drupal.conf.example ]; then
@@ -621,8 +630,8 @@ server {
         fastcgi_intercept_errors on;
         fastcgi_read_timeout 120;
         include fastcgi_params;
-        fastcgi_pass 127.0.0.1:9000;
-        #fastcgi_pass unix:/var/run/php5-fpm.sock;
+        #fastcgi_pass 127.0.0.1:9000;
+        fastcgi_pass unix:/var/run/php5-fpm.sock;
     }
 
     location @rewrite {
@@ -689,20 +698,24 @@ EOF'
   fi
 
   # Fix file permissions.
-  cd $ROOT/sites
-  SITES=$(echo $(ls -d */) | sed 's,/,,g' 2> /dev/null)
-  for S in $SITES; do
-    sudo chmod -R ug+w $ROOT/sites/$S
-    if [ -d "$ROOT/sites/$S/files" ]; then
-      sudo chown -R $(whoami):www-data $ROOT/sites/$S/files
-    fi
-  done
+  if [ -d $ROOT/sites ]; then
+    cd $ROOT/sites
+    SITES=$(echo $(ls -d */) | sed 's,/,,g' 2> /dev/null)
+    for S in $SITES; do
+      sudo chmod -R ug+w $ROOT/sites/$S
+      if [ -d "$ROOT/sites/$S/files" ]; then
+        sudo chown -R $(whoami):www-data $ROOT/sites/$S/files
+      fi
+    done
+  fi
 
   # Replace placeholder credentials if needed.
   SETTINGS="$ROOT/sites/$MULTISITE/settings.php"
-  sed -i "s/DATABASE/$DBNAME/g" $SETTINGS
-  sed -i "s/USERNAME/drupal/g" $SETTINGS
-  sed -i "s/PASSWORD/drupal/g" $SETTINGS
+  if [ -f $SETTINGS ]; then
+    sed -i "s/DATABASE/$DBNAME/g" $SETTINGS
+    sed -i "s/USERNAME/drupal/g" $SETTINGS
+    sed -i "s/PASSWORD/drupal/g" $SETTINGS
+  fi
 
   # Perform the drush site install.
   cd $ROOT
@@ -1031,14 +1044,16 @@ if [ $OP == "install" ]; then
     PRIVATE_IP=$($IFCONFIG | grep "inet addr:192" | cut -d: -f2 | xargs | cut -d' ' -f1 2> /dev/null)
   fi
   if [ -z "$PRIVATE_IP" ]; then
-    echo "Unable to determine the class C private ip address.  Configure Vagrantfile to enable a private network."
+    echo "Unable to determine the class C private ip address."
+    echo "If using Vagrant, configure Vagrantfile to enable a private network."
     echo "Example: config.vm.network \"private_network\", ip: \"192.168.33.10\""
+    exit 1
   else
+    hosts $PRIVATE_IP $SITE_ENV
     echo "Make sure '$PRIVATE_IP $SITE_ENV' exists in your local hosts file and then open http://$SITE_ENV in your browser."
     echo "The local hosts file is located at /etc/hosts (MAC/BSD/Linux) or C:\Windows\System32\drivers\etc\hosts (Windows)."
+    exit 0
   fi
-  echo ""
-  exit 0
 fi
 
 # Uninstall specific operation.
@@ -1068,12 +1083,7 @@ if [ $OP == "uninstall" ]; then
     sudo rm -f /var/log/nginx/$SITE_ENV-error.log
 
     # Remove database.
-    if [ -z "$MYSQL_ROOT_PW" ]; then
-      echo "use mysql;revoke all on $DBNAME.* from drupal@localhost;" | mysql -uroot
-      echo "drop database $DBNAME;" | mysql -uroot
-    else
-      echo "use mysql;revoke all on $DBNAME.* from drupal@localhost;" | mysql -uroot -p$MYSQL_ROOT_PW
-      echo "drop database $DBNAME;" | mysql -uroot -p$MYSQL_ROOT_PW
-    fi
+    echo "use mysql;revoke all on $DBNAME.* from drupal@localhost;" | mysql -uroot
+    echo "drop database $DBNAME;" | mysql -uroot
   fi
 fi
