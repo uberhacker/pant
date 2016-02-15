@@ -1028,24 +1028,26 @@ if [ $OP == "install" ]; then
   fi
   PRIVATE_IP=$($IFCONFIG | grep "inet addr:192" | cut -d: -f2 | xargs | cut -d' ' -f1 2> /dev/null)
   VIRT_WHAT=$(sudo virt-what)
-  if [ -z "$PRIVATE_IP" ]; then
-    echo "Unable to determine the class C private ip address."
-    if [ ! -z "$VIRT_WHAT" ]; then
+  ENTRY=$(grep "^127.0.0.1 $SITE_ENV" /etc/hosts 2> /dev/null)
+  if [ -z "$ENTRY" ]; then
+    sudo sh -c "echo '127.0.0.1 $SITE_ENV' >> /etc/hosts"
+  fi
+  if [ ! -z "$VIRT_WHAT" ]; then
+    if [ -z "$PRIVATE_IP" ]; then
+      echo "Unable to determine the class C private ip address."
       echo "If using Vagrant, configure Vagrantfile to enable a private network."
       echo "Example: config.vm.network \"private_network\", ip: \"192.168.33.10\""
-    fi
-    exit 1
-  else
-    ENTRY=$(grep "^$PRIVATE_IP $SITE_ENV" /etc/hosts 2> /dev/null)
-    if [ -z "$ENTRY" ]; then
-      sudo sh -c "echo '$PRIVATE_IP $SITE_ENV' >> /etc/hosts"
-    fi
-    if [ ! -z "$VIRT_WHAT" ]; then
+      exit 1
+    else
       echo "Make sure '$PRIVATE_IP $SITE_ENV' exists in your local hosts file and then open http://$SITE_ENV in your browser."
       echo "The local hosts file is located at /etc/hosts (MAC/BSD/Linux) or C:\Windows\System32\drivers\etc\hosts (Windows)."
+      exit 0
     fi
+  else
+    echo "Visit http://$SITE_ENV in your browser."
     exit 0
   fi
+  echo ""
 fi
 
 # Uninstall specific operation.
