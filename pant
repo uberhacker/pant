@@ -40,6 +40,11 @@ if [[ ! -f "$HOME/.my.cnf" || -z "$(grep '^password=' $HOME/.my.cnf 2> /dev/null
     echo "Passwords do not match."
     exit 1
   fi
+  CONNECT=$(echo "select version();" | mysql -uroot -p$MYSQL_ROOT_PW 2> /dev/null)
+  if [ -z "$CONNECT" ]; then
+    echo "Unable to connect to MySQL."
+    exit 1
+  fi
   echo "[client]" >> $HOME/.my.cnf
   echo "password=$MYSQL_ROOT_PW" >> $HOME/.my.cnf
 else
@@ -699,8 +704,8 @@ EOF'
   SETTINGS="$ROOT/sites/$MULTISITE/settings.php"
   if [ -f $SETTINGS ]; then
     sed -i "s/DATABASE/$DBNAME/g" $SETTINGS
-    sed -i "s/USERNAME/drupal/g" $SETTINGS
-    sed -i "s/PASSWORD/drupal/g" $SETTINGS
+    sed -i "s/USERNAME/root/g" $SETTINGS
+    sed -i "s/PASSWORD/$MYSQL_ROOT_PW/g" $SETTINGS
   fi
 
   # Perform the drush site install.
