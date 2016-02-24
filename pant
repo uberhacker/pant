@@ -1,21 +1,93 @@
 #!/bin/bash
 
+# Check to make sure the distribution is Debian-based.
+if [ ! -f /etc/debian_version ]; then
+  echo "Currently, this script can only execute on Debian/Ubuntu and derivative Linux distributions."
+  exit 1
+fi
+
 # Check if sudo is installed.
 SUDO=$(which sudo)
 if [ $? == 1 ]; then
-  sudo apt-get install sudo -y
+  WHOAMI=$(whoami)
+  if [ $WHOAMI != "root" ]; then
+    echo "You must be logged in as root."
+    exit 1
+  fi
+  apt-get install sudo -y
 fi
 
-# Check if php5-fpm is installed.
-PHP=$(dpkg -l | grep php5-fpm 2> /dev/null)
-if [ -z "$PHP" ]; then
-  sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+# Determine the distribution and release.
+LSB=$(which lsb_release)
+if [ $? == 1 ]; then
+  sudo apt-get install lsb_release -y
+fi
+DISTRO=$(lsb_release -c | cut -d: -f1)
+RELEASE=$(lsb_release -c | cut -d: -f2 | xargs)
+
+# Check if php5/5.5/5.6/7.0-fpm is installed.
+PHP5=$(dpkg -l | grep php5-fpm 2> /dev/null)
+PHP55=$(dpkg -l | grep php5.5-fpm 2> /dev/null)
+PHP56=$(dpkg -l | grep php5.6-fpm 2> /dev/null)
+PHP70=$(dpkg -l | grep php7.0-fpm 2> /dev/null)
+if [[ -z "$PHP5" && -z "$PHP55" && -z "$PHP56" && -z "$PHP70" ]]; then
+  echo -n "Enter your php version (5.5/5.6/7.0): "; read -n 3 PHP_VER
+  if [ -z "$PHP_VER" ]; then
+    echo "No version entered."
+    exit 1
+  fi
+  if [[ $PHP_VER != "5.5" && $PHP_VER != "5.6" && $PHP_VER != "7.0" ]]; then
+    echo "Invalid version."
+    exit 1
+  fi
+  if [ $DISTRO == "Debian" ]; then
+    sudo sh -c 'echo "deb http://packages.dotdeb.org $RELEASE all" > /etc/apt/sources.list.d/dotdeb.list'
+    sudo sh -c 'echo "deb-src http://packages.dotdeb.org $RELEASE all" >> /etc/apt/sources.list.d/dotdeb.list'
+    wget https://www.dotdeb.org/dotdeb.gpg
+    sudo apt-key add dotdeb.gpg
+    rm -f dotdeb.gpg
+  else
+    if [ $PHP_VER == "7.0" ]; then
+      sudo apt-get install software-properties-common -y
+      sudo add‐apt‐repository ppa:ondrej/php‐7.0
+    fi
+  fi
+  sudo apt‐get update
+  if [ $PHP_VER == "7.0" ]; then
+    sudo apt-get purge php5* -y
+    sudo apt‐get install php7.0 php7.0-cli php7.0-curl php7.0-fpm php7.0-gd php7.0-json php7.0-mcrypt php7.0-mysql -y
+  else
+    sudo apt-get purge php7* -y
+    if [ $PHP_VER == "5.6" ]; then
+      sudo apt-get install php5.6 php5.6-cli php5.6-curl php5.6-fpm php5.6-gd php5.6-mcrypt php5.6-mysqlnd -y
+    else
+      if [ $DISTRO == "Debian" ]; then
+        sudo apt-get install php5.5 php5.5-cli php5.5-curl php5.5-fpm php5.5-gd php5.5-mcrypt php5.5-mysqlnd -y
+      else
+        sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+      fi
+    fi
+  fi
+else
+  if [ ! -z "$PHP70" ]; then
+    PHP_VER=7.0
+  else
+    if [ ! -z "$PHP56" ]; then
+      PHP_VER=5.6
+    else
+      if [ $DISTRO == "Debian" ]; then
+        PHP_VER=5.5
+      else
+        PHP_VER=5
+      fi
+    fi
+  fi
 fi
 
-# Check if php5-fpm is running.
-PHP_PID=$(pidof php5-fpm 2> /dev/null)
+# Check if php5.5/5.6/7.0-fpm is running.
+PHP_PID=$(pidof php$PHP_VER-fpm 2> /dev/null)
 if [ -z "$PHP_PID" ]; then
-  sudo service php5-fpm start
+  sudo service php$PHP_VER-fpm start
 fi
 
 # Check if mysql, mariadb or percona servers are installed.
@@ -684,6 +756,7 @@ EOF'
     # Create nginx virtual host.
     cp /etc/nginx/conf.d/drupal.conf.example /tmp/$SITE_ENV
     sed -i "s,{{ site }},$SITE_ENV,g" /tmp/$SITE_ENV
+    sed -i "s,php5-fpm,php$PHP_VER-fpm,g" /tmp/$SITE_ENV
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
     sudo ln -s /etc/nginx/sites-available/$SITE_ENV /etc/nginx/sites-enabled/$SITE_ENV
   fi
@@ -812,10 +885,30 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
     fi
   fi
 
-  # Make sure the php5-redis package is installed.
-  PHP5_REDIS=$(dpkg -l | grep php5-redis 2> /dev/null)
-  if [ -z "$PHP5_REDIS" ]; then
-    sudo apt-get install php5-redis -y
+  # Make sure the Redis php extension is installed.
+  if [ $PHP_VER == "7.0" ]; then
+    if [ ! -f /etc/php/mods-available/redis.ini ]; then
+      sudo apt-get purge php5* -y
+      sudo apt-get install php7.0-dev -y
+      git clone https://github.com/phpredis/phpredis.git
+      cd phpredis
+      git checkout php7
+      phpize
+      ./configure
+      make
+      sudo make install
+      cd ..
+      sudo rm -rf phpredis/
+      sudo sh -c 'echo "extension=redis.so" > /etc/php/mods-available/redis.ini'
+      sudo ln -sf /etc/php/mods-available/redis.ini /etc/php/7.0/fpm/conf.d/20-redis.ini
+      sudo ln -sf /etc/php/mods-available/redis.ini /etc/php/7.0/cli/conf.d/20-redis.ini
+      sudo service php7.0-fpm restart
+    fi
+  else
+    PHP5_REDIS=$(dpkg -l | grep php$PHP_VER-redis 2> /dev/null)
+    if [ -z "$PHP5_REDIS" ]; then
+      sudo apt-get install php$PHP_VER-redis -y
+    fi
   fi
 
   # Make sure the redis-server service is running.
@@ -867,69 +960,71 @@ EOF
     fi
   fi
 
-  # Prompt to enable XHProf.
-  echo -n "Would you like to enable XHProf? (y/N): "; read -n 1 XHPROF
-  echo ""
-  if [ "$XHPROF" == "Y" ]; then
-    XHPROF=y
-  fi
-  if [ "$XHPROF" == "y" ]; then
-    XHPROF_MOD=$(dpkg -l | grep php5-xhprof 2> /dev/null)
-    if [ -z "$XHPROF_MOD" ]; then
-      sudo apt-get install php5-xhprof -y
-      sudo service php5-fpm restart
+  if [ $PHP_VER != "7.0" ]; then
+    # Prompt to enable XHProf.
+    echo -n "Would you like to enable XHProf? (y/N): "; read -n 1 XHPROF
+    echo ""
+    if [ "$XHPROF" == "Y" ]; then
+      XHPROF=y
     fi
-    if [ $VER == 8 ]; then
-      XHPROF_PATH="$ROOT/modules/contrib/xhprof"
-    else
-      XHPROF_PATH="$ROOT/sites/all/modules/contrib/xhprof"
-    fi
-    if [ ! -d "$XHPROF_PATH" ]; then
-      $DRUSH dl xhprof
-    fi
-    if [ $VER == 8 ]; then
-      $DRUSH cr
-    else
-      $DRUSH rr
-    fi
-    $DRUSH en -y xhprof
-    if [ $VER == 8 ]; then
-      $DRUSH cset xhprof.config enabled true -y
-      $DRUSH cset xhprof.config flags.FLAGS_CPU 1 -y
-      $DRUSH cset xhprof.config flags.FLAGS_MEMORY 1 -y
-      $DRUSH cset xhprof.config interval 0 -y
-    else
-      # Apply patch to expose paths.  See https://www.drupal.org/node/2354853.
-      if [ ! -f "$XHPROF_PATH/xhprof-2354853-paths-d7-4.patch" ]; then
-        cd $XHPROF_PATH
-        wget https://www.drupal.org/files/issues/xhprof-2354853-paths-d7-4.patch
-        patch -p1 < xhprof-2354853-paths-d7-4.patch
+    if [ "$XHPROF" == "y" ]; then
+      XHPROF_MOD=$(dpkg -l | grep php$PHP_VER-xhprof 2> /dev/null)
+      if [ -z "$XHPROF_MOD" ]; then
+        sudo apt-get install php$PHP_VER-xhprof -y
+        sudo service php$PHP_VER-fpm restart
       fi
-      $DRUSH vset xhprof_default_class 'XHProfRunsFile'
-      $DRUSH vset xhprof_disable_admin_paths 1
-      $DRUSH vset xhprof_enabled 1
-      $DRUSH vset xhprof_flags_cpu 1
-      $DRUSH vset xhprof_flags_memory 1
-      $DRUSH vset xhprof_interval ''
+      if [ $VER == 8 ]; then
+        XHPROF_PATH="$ROOT/modules/contrib/xhprof"
+      else
+        XHPROF_PATH="$ROOT/sites/all/modules/contrib/xhprof"
+      fi
+      if [ ! -d "$XHPROF_PATH" ]; then
+        $DRUSH dl xhprof
+      fi
+      if [ $VER == 8 ]; then
+        $DRUSH cr
+      else
+        $DRUSH rr
+      fi
+      $DRUSH en -y xhprof
+      if [ $VER == 8 ]; then
+        $DRUSH cset xhprof.config enabled true -y
+        $DRUSH cset xhprof.config flags.FLAGS_CPU 1 -y
+        $DRUSH cset xhprof.config flags.FLAGS_MEMORY 1 -y
+        $DRUSH cset xhprof.config interval 0 -y
+      else
+        # Apply patch to expose paths.  See https://www.drupal.org/node/2354853.
+        if [ ! -f "$XHPROF_PATH/xhprof-2354853-paths-d7-4.patch" ]; then
+          cd $XHPROF_PATH
+          wget https://www.drupal.org/files/issues/xhprof-2354853-paths-d7-4.patch
+          patch -p1 < xhprof-2354853-paths-d7-4.patch
+        fi
+        $DRUSH vset xhprof_default_class 'XHProfRunsFile'
+        $DRUSH vset xhprof_disable_admin_paths 1
+        $DRUSH vset xhprof_enabled 1
+        $DRUSH vset xhprof_flags_cpu 1
+        $DRUSH vset xhprof_flags_memory 1
+        $DRUSH vset xhprof_interval ''
+      fi
     fi
-  fi
 
-  # Prompt to enable Xdebug.
-  echo -n "Would you like to enable Xdebug? (y/N): "; read -n 1 XDEBUG
-  echo ""
-  if [ "$XDEBUG" == "Y" ]; then
-    XDEBUG=y
-  fi
-  XDEBUG_MOD=$(dpkg -l | grep php5-xdebug 2> /dev/null)
-  if [ "$XDEBUG" == "y" ]; then
-    if [ -z "$XDEBUG_MOD" ]; then
-      sudo apt-get install php5-xdebug -y
-      sudo service php5-fpm restart
+    # Prompt to enable Xdebug.
+    echo -n "Would you like to enable Xdebug? (y/N): "; read -n 1 XDEBUG
+    echo ""
+    if [ "$XDEBUG" == "Y" ]; then
+      XDEBUG=y
     fi
-  else
-    if [ ! -z "$XDEBUG_MOD" ]; then
-      sudo apt-get purge php5-xdebug -y
-      sudo service php5-fpm restart
+    XDEBUG_MOD=$(dpkg -l | grep php$PHP_VER-xdebug 2> /dev/null)
+    if [ "$XDEBUG" == "y" ]; then
+      if [ -z "$XDEBUG_MOD" ]; then
+        sudo apt-get install php$PHP_VER-xdebug -y
+        sudo service php$PHP_VER-fpm restart
+      fi
+    else
+      if [ ! -z "$XDEBUG_MOD" ]; then
+        sudo apt-get purge php$PHP_VER-xdebug -y
+        sudo service php$PHP_VER-fpm restart
+      fi
     fi
   fi
 
@@ -1018,7 +1113,7 @@ fi
 if [ $OP == "install" ]; then
   # Restart web services.
   sudo service redis-server restart
-  sudo service php5-fpm restart
+  sudo service php$PHP_VER-fpm restart
   sudo service nginx restart
   sudo service mysql restart
 
