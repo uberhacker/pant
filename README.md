@@ -39,6 +39,10 @@
 
     Pull the latest code from the dev environment for the current Drupal site
 
+  *pant config*
+
+    Manage the local system configuration
+
   *pant db*
 
     Download the latest database backup from the dev environment for the current Drupal site
@@ -74,6 +78,10 @@
   *pant sites*
 
     List the available sites on Pantheon
+
+  *pant stats*
+
+    List the local system statistics
 
   *pant sync*
 
