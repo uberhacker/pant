@@ -941,7 +941,8 @@ EOF'
 
   # Remove settings.local.php references.
   sed -i "/$LOCAL1/,+2d" $SETTINGS
-  sed -i "/$LOCAL2/,+3d" $SETTINGS
+  sed -i "/$LOCAL2/,+2d" $SETTINGS
+  sed -i "/$LOCAL3/,+3d" $SETTINGS
 
   # Make sure the last lines include settings.local.php.
   echo "" >> $SETTINGS
@@ -1296,7 +1297,7 @@ if [ $OP == "uninstall" ]; then
       sudo sh -c "sed -i '/^$ENTRY/d' /etc/hosts" 2> /dev/null
     fi
 
-    # Restart services.
+    # Restart web server.
     sudo service nginx restart
   fi
 fi
