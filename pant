@@ -61,8 +61,8 @@ LSB=$(which lsb_release)
 if [ $? == 1 ]; then
   sudo apt-get install lsb_release -y
 fi
-DISTRO=$(lsb_release -i | cut -d: -f2 | xargs)
-RELEASE=$(lsb_release -c | cut -d: -f2 | xargs)
+DISTRO=$(lsb_release -si)
+RELEASE=$(lsb_release -sc)
 
 # Check if configuration is requested.
 CONFIG=no
@@ -216,6 +216,15 @@ if [ $? == 1 ]; then
   DRUSH="$HOME/.composer/vendor/bin/drush"
 fi
 
+# Check if drupal console is installed.
+DRUPAL=$(which drupal)
+if [ $? == 1 ]; then
+  curl https://drupalconsole.com/installer -L -o drupal.phar
+  chmod +x drupal.phar
+  sudo mv drupal.phar /usr/local/bin/drupal
+  DRUPAL="/usr/local/bin/drupal"
+fi
+
 # Check if terminus is installed.
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
@@ -282,6 +291,8 @@ Examples:
     Download the latest files backup from the dev environment for the current Drupal site
   pant fix
     Repair the files and database for the dev environment of the current Drupal site
+  pant info
+    Retrieve information about the current Drupal site
   pant install my-site
     Install the dev environment for the Pantheon Site Name my-site
   pant log
@@ -298,13 +309,15 @@ Examples:
     Download the latest code, database and files backup from the dev environment for the current Drupal site
   pant uninstall my-site
     Uninstall the dev environment for the Pantheon Site Name my-site
+  pant update
+    Update composer and associated packages
 '
 
 # Get the operation.
 if test $1; then
   OP=$1
   OP_FOUND=n
-  OPS="aliases backup code config db domain files fix install log logout sftp sites stats sync uninstall"
+  OPS="aliases backup code config db domain files fix info install log logout sftp sites stats sync uninstall update"
   for O in $OPS; do
     if [ "$OP" == "$O" ]; then
       OP_FOUND=y
@@ -486,6 +499,17 @@ if [ $OP == "stats" ]; then
   exit 0
 fi
 
+# Update composer and associated packages.
+if [ $OP == "update" ]; then
+  sudo composer self-update
+  sudo drupal self-update
+  CWD=$(pwd)
+  cd $HOME/.composer
+  composer update
+  cd $CWD
+  exit 0
+fi
+
 # Prompt for Pantheon Site Name.
 if [ -z "$SITE" ]; then
   $TERMINUS sites list 2> /dev/null
@@ -500,6 +524,12 @@ ID=$($TERMINUS site info --site=$SITE --field=id 2> /dev/null)
 if [ -z "$ID" ]; then
   echo "$SITE is not a valid Pantheon Site Name."
   exit 1
+fi
+
+# Display the site info.
+if [ $OP == "info" ]; then
+  $TERMINUS site info --site=$SITE
+  exit 0
 fi
 
 # Set the site environment.
@@ -818,7 +848,11 @@ EOF'
     # Create nginx virtual host.
     cp /etc/nginx/conf.d/drupal.conf.example /tmp/$SITE_ENV
     sed -i "s,{{ site }},$SITE_ENV,g" /tmp/$SITE_ENV
-    sed -i "s,php5-fpm,php$PHP_VER-fpm,g" /tmp/$SITE_ENV
+    if [ $PHP_VER == "7.0" ]; then
+      sed -i "s,php5-fpm,php/php$PHP_VER-fpm,g" /tmp/$SITE_ENV
+    else
+      sed -i "s,php5-fpm,php$PHP_VER-fpm,g" /tmp/$SITE_ENV
+    fi
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
     sudo ln -s /etc/nginx/sites-available/$SITE_ENV /etc/nginx/sites-enabled/$SITE_ENV
   fi
@@ -843,9 +877,15 @@ EOF'
     sed -i "s/PASSWORD/$MYSQL_ROOT_PW/g" $SETTINGS
   fi
 
-  # Perform the drush site install.
+  # Perform the site install.
+  FRAMEWORK=$($TERMINUS site info --site=$SITE --field=framework 2> /dev/null)
   cd $ROOT
-  $DRUSH site-install $PROFILE --account-name=admin --account-pass=admin --db-url=mysql://root:$MYSQL_ROOT_PW@localhost/$DBNAME --site-name=$SITE_ENV --sites-subdir=$MULTISITE -v -y
+  if [ $FRAMEWORK == "drupal8" ]; then
+    rm -f $SETTINGS
+    $DRUPAL site:install $PROFILE --langcode en --account-name admin --account-pass admin --account-mail admin@$SITE_ENV --db-type mysql --db-host localhost --db-name $DBNAME --db-user root --db-pass $MYSQL_ROOT_PW --db-port 3306 --db-prefix _ --site-name $SITE_ENV --site-mail admin@$SITE_ENV -v -y
+  else
+    $DRUSH site-install $PROFILE --account-name=admin --account-pass=admin --db-url=mysql://root:$MYSQL_ROOT_PW@localhost/$DBNAME --site-name=$SITE_ENV --sites-subdir=$MULTISITE -v -y
+  fi
 
   # Determine the Drupal version.
   VER=$($DRUSH status drupal-version --format=list | cut -d '.' -f1 2> /dev/null)
@@ -884,30 +924,40 @@ EOF'
     fi
   done
 
+  # Remove settings.local.php references.
+  LOCAL1="if (file_exists(dirname(__FILE__) . '\/settings.local.php')) {"
+  LOCAL2="if (file_exists(__DIR__ . '\/settings.local.php')) {"
+  LOCAL3='$local_settings = __DIR__ . "\/settings.local.php";'
+  sed -i "/$LOCAL1/,+2d" $SETTINGS
+  sed -i "/$LOCAL2/,+2d" $SETTINGS
+  sed -i "/$LOCAL3/,+3d" $SETTINGS
+
   # Create settings.local.php.
   LOCALSETTINGS=${SETTINGS//settings.php/settings.local.php}
   cp $SETTINGS $LOCALSETTINGS
-  $GIT checkout $SETTINGS
-  LOCAL="if (file_exists(dirname(__FILE__) . '/settings.local.php')) {
-  include dirname(__FILE__) . '/settings.local.php';
-}"
-  LAST3=$(tail -3 $SETTINGS)
-  if [ "$LAST3" != "$LOCAL" ]; then
-    echo "" >> $SETTINGS
-    echo "if (file_exists(dirname(__FILE__) . '/settings.local.php')) {" >> $SETTINGS
-    echo "  include dirname(__FILE__) . '/settings.local.php';" >> $SETTINGS
-    echo "}" >> $SETTINGS
-  else
-    head -$(($(cat $LOCALSETTINGS | wc -l)-3)) $LOCALSETTINGS > /tmp/settings.local.php
-    sudo mv -f /tmp/settings.local.php $LOCALSETTINGS
-  fi
 
-  # Install registry rebuild.
+  # Checkout settings.php.
+  $GIT checkout $SETTINGS
+
+  # Remove settings.local.php references.
+  sed -i "/$LOCAL1/,+2d" $SETTINGS
+  sed -i "/$LOCAL2/,+3d" $SETTINGS
+
+  # Make sure the last lines include settings.local.php.
+  echo "" >> $SETTINGS
+  echo "if (file_exists(dirname(__FILE__) . '/settings.local.php')) {" >> $SETTINGS
+  echo "  include dirname(__FILE__) . '/settings.local.php';" >> $SETTINGS
+  echo "}" >> $SETTINGS
+
   if [ $VER == 7 ]; then
+    # Install registry rebuild.
     if [ ! -f "$HOME/.drush/registry_rebuild/registry_rebuild.php" ]; then
       $DRUSH dl registry_rebuild -y
       $DRUSH cc drush
     fi
+  fi
+  if [ $VER == 8 ]; then
+    $DRUSH cr
   fi
 else
   # Determine the Drupal version.
@@ -948,23 +998,24 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   fi
 
   # Make sure the Redis php extension is installed.
+  # TODO: Make this work so it doesn't uninstall all other packages.
   if [ $PHP_VER == "7.0" ]; then
     if [ ! -f /etc/php/mods-available/redis.ini ]; then
       sudo apt-get purge php5* -y
       sudo apt-get install php7.0-dev -y
-      git clone https://github.com/phpredis/phpredis.git
-      cd phpredis
-      git checkout php7
-      phpize
-      ./configure
-      make
-      sudo make install
-      cd ..
-      sudo rm -rf phpredis/
-      sudo sh -c 'echo "extension=redis.so" > /etc/php/mods-available/redis.ini'
-      sudo ln -sf /etc/php/mods-available/redis.ini /etc/php/7.0/fpm/conf.d/20-redis.ini
-      sudo ln -sf /etc/php/mods-available/redis.ini /etc/php/7.0/cli/conf.d/20-redis.ini
-      sudo service php7.0-fpm restart
+      #git clone https://github.com/phpredis/phpredis.git
+      #cd phpredis
+      #git checkout php7
+      #phpize
+      #./configure
+      #make
+      #sudo make install
+      #cd ..
+      #sudo rm -rf phpredis/
+      #sudo sh -c 'echo "extension=redis.so" > /etc/php/mods-available/redis.ini'
+      #sudo ln -sf /etc/php/mods-available/redis.ini /etc/php/7.0/fpm/conf.d/20-redis.ini
+      #sudo ln -sf /etc/php/mods-available/redis.ini /etc/php/7.0/cli/conf.d/20-redis.ini
+      #sudo service php7.0-fpm restart
     fi
   else
     PHP5_REDIS=$(dpkg -l | grep php$PHP_VER-redis 2> /dev/null)
@@ -1238,5 +1289,14 @@ if [ $OP == "uninstall" ]; then
     # Remove database.
     DBNAME=${SITE_ENV//-/_}
     echo "drop database $DBNAME;" | mysql -uroot
+
+    # Remove /etc/hosts entry.
+    ENTRY=$(grep "^127.0.0.1 $SITE_ENV" /etc/hosts 2> /dev/null)
+    if [ ! -z "$ENTRY" ]; then
+      sudo sh -c "sed -i '/^$ENTRY/d' /etc/hosts" 2> /dev/null
+    fi
+
+    # Restart services.
+    sudo service nginx restart
   fi
 fi

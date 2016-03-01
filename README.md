@@ -59,6 +59,10 @@
 
     Repair the files and database for the dev environment of the current Drupal site
 
+  *pant info*
+
+    Retrieve information about the current Drupal site
+
   *pant install my-site*
 
     Install the dev environment for the Pantheon Site Name my-site
@@ -90,3 +94,7 @@
   *pant uninstall my-site*
 
     Uninstall the dev environment for the Pantheon Site Name my-site
+
+  *pant update*
+
+    Update composer and associated packages
