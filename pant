@@ -96,14 +96,8 @@ if [ $CONFIG == "yes" ]; then
     echo "Invalid version."
     exit 1
   fi
-  if [[ ! -z "$PHP" && $PHP_VER == $CURRENT_PHP_VER ]]; then
-    echo "No changes to configuration."
-    exit 0
-  fi
-  if [ $PHP_VER != "7.0" ]; then
-    PHP_VER=5
-  fi
   if [ $PHP_VER == "7.0" ]; then
+    PHP_FPM_DIR=/etc/php/7.0/fpm/
     if [ $DISTRO == "Debian" ]; then
       if [ ! -f /etc/apt/sources.list.d/dotdeb.list ]; then
         sudo sh -c "echo 'deb http://packages.dotdeb.org $RELEASE all' > /etc/apt/sources.list.d/dotdeb.list"
@@ -114,16 +108,98 @@ if [ $CONFIG == "yes" ]; then
         sudo apt‐get update
       fi
     else
-      sudo apt-get install software-properties-common -y
-      sudo add‐apt‐repository ppa:ondrej/php‐7.0
-      sudo apt‐get update
+      if [ ! -f /etc/apt/sources.list.d/ondrej-php-$RELEASE.list ]; then
+        sudo apt-get install software-properties-common -y
+        sudo add‐apt‐repository ppa:ondrej/php‐7.0
+        sudo apt‐get update
+      fi
     fi
-    sudo apt-get purge php5* -y
-    sudo apt-get install php7.0 php7.0-cli php7.0-curl php7.0-fpm php7.0-gd php7.0-json php7.0-mcrypt php7.0-mysql -y
+    PHP7=$(dpkg -l | grep php7.0 2> /dev/null)
+    if [ -z "$PHP7" ]; then
+      sudo apt-get purge php5* -y
+      sudo apt-get install php7.0 php7.0-cli php7.0-curl php7.0-fpm php7.0-gd php7.0-json php7.0-mcrypt php7.0-mysql -y
+      sudo apt-get autoremove --purge -y
+    fi
   else
-    sudo apt-get purge php7* -y
-    sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+    PHP_VER=5
+    PHP_FPM_DIR=/etc/php5/fpm/
+    PHP5=$(dpkg -l | grep php5 2> /dev/null)
+    if [ -z "$PHP5" ]; then
+      sudo apt-get purge php7* -y
+      sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+      sudo apt-get autoremove --purge -y
+    fi
   fi
+
+  # Adjust PHP settings.
+  cd $PHP_FPM_DIR
+  CURRENT_PHP_MEMORY_LIMIT=$(grep "^memory_limit" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Enter the php memory limit [$CURRENT_PHP_MEMORY_LIMIT]: "; read PHP_MEMORY_LIMIT
+  if [ -z "$PHP_MEMORY_LIMIT" ]; then
+    PHP_MEMORY_LIMIT=$CURRENT_PHP_MEMORY_LIMIT
+  fi
+  sudo sed -i "s/^memory_limit = 128M/memory_limit = $PHP_MEMORY_LIMIT/" php.ini
+  CURRENT_PHP_MAX_EXECUTION_TIME=$(grep "^max_execution_time" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Enter the php max execution time (sec) [$CURRENT_PHP_MAX_EXECUTION_TIME]: "; read PHP_MAX_EXECUTION_TIME
+  if [ -z "$PHP_MAX_EXECUTION_TIME" ]; then
+    PHP_MAX_EXECUTION_TIME=$CURRENT_PHP_MAX_EXECUTION_TIME
+  fi
+  sudo sed -i "s/^max_execution_time = 30/max_execution_time = $PHP_MAX_EXECUTION_TIME/" php.ini
+  CURRENT_PHP_MAX_INPUT_TIME=$(grep "^max_input_time" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Enter the php max input time [$CURRENT_PHP_MAX_INPUT_TIME]: "; read PHP_MAX_INPUT_TIME
+  if [ -z "$PHP_MAX_INPUT_TIME" ]; then
+    PHP_MAX_INPUT_TIME=$CURRENT_PHP_MAX_INPUT_TIME
+  fi
+  sudo sed -i "s/^max_input_time = 60/max_input_time = $PHP_MAX_INPUT_TIME/" php.ini
+  CURRENT_PHP_POST_MAX_SIZE=$(grep "^post_max_size" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Enter the php post max size [$CURRENT_PHP_POST_MAX_SIZE]: "; read PHP_POST_MAX_SIZE
+  if [ -z "$PHP_POST_MAX_SIZE" ]; then
+    PHP_POST_MAX_SIZE=$CURRENT_PHP_POST_MAX_SIZE
+  fi
+  sudo sed -i "s/^post_max_size = 8M/post_max_size = $PHP_POST_MAX_SIZE/" php.ini
+  CURRENT_PHP_UPLOAD_MAX_FILESIZE=$(grep "^upload_max_filesize" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Enter the php upload max filesize [$CURRENT_PHP_UPLOAD_MAX_FILESIZE]: "; read PHP_UPLOAD_MAX_FILESIZE
+  if [ -z "$PHP_UPLOAD_MAX_FILESIZE" ]; then
+    PHP_UPLOAD_MAX_FILESIZE=$CURRENT_PHP_UPLOAD_MAX_FILESIZE
+  fi
+  sudo sed -i "s/^upload_max_filesize = 2M/upload_max_filesize = $PHP_UPLOAD_MAX_FILESIZE/" php.ini
+  CURRENT_PHP_ERROR_REPORTING=$(grep "^error_reporting" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Enter the php error reporting [$CURRENT_PHP_ERROR_REPORTING]: "; read PHP_ERROR_REPORTING
+  if [ -z "$PHP_ERROR_REPORTING" ]; then
+    PHP_ERROR_REPORTING=$CURRENT_PHP_ERROR_REPORTING
+  fi
+  sudo sed -i "s/^error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT/error_reporting = $PHP_ERROR_REPORTING/" php.ini
+  CURRENT_PHP_DISPLAY_ERRORS=$(grep "^display_errors" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Display php errors [$CURRENT_PHP_DISPLAY_ERRORS]: "; read PHP_DISPLAY_ERRORS
+  if [ -z "$PHP_DISPLAY_ERRORS" ]; then
+    PHP_DISPLAY_ERRORS=$CURRENT_PHP_DISPLAY_ERRORS
+  fi
+  sudo sed -i "s/^display_errors = Off/display_errors = $PHP_DISPLAY_ERRORS/" php.ini
+  CURRENT_PHP_DISPLAY_STARTUP_ERRORS=$(grep "^display_startup_errors" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Display php startup errors [$CURRENT_PHP_DISPLAY_STARTUP_ERRORS]: "; read PHP_DISPLAY_STARTUP_ERRORS
+  if [ -z "$PHP_DISPLAY_STARTUP_ERRORS" ]; then
+    PHP_DISPLAY_STARTUP_ERRORS=$CURRENT_PHP_DISPLAY_STARTUP_ERRORS
+  fi
+  sudo sed -i "s/^display_startup_errors = Off/display_startup_errors = $PHP_DISPLAY_STARTUP_ERRORS/" php.ini
+  CURRENT_PHP_TRACK_ERRORS=$(grep "^track_errors" php.ini | cut -d= -f2 | xargs 2> /dev/null)
+  echo -n "Track php errors [$CURRENT_PHP_TRACK_ERRORS]: "; read PHP_TRACK_ERRORS
+  if [ -z "$PHP_TRACK_ERRORS" ]; then
+    PHP_TRACK_ERRORS=$CURRENT_PHP_TRACK_ERRORS
+  fi
+  sudo sed -i "s/^track_errors = Off/track_errors = $PHP_TRACK_ERRORS/" php.ini
+  sudo sed -i "s/^;always_populate_raw_post_data = -1/always_populate_raw_post_data = -1/" php.ini
+  sudo sed -i "s/^;cgi.fix_pathinfo=1/cgi.fix_pathinfo=0/" php.ini
+  cd pool.d
+  CURRENT_PHP_LISTEN=$(grep "^listen" www.conf | cut -d= -f2 | xargs | cut -d' ' -f1 2> /dev/null)
+  echo -n "Listen for php on [$CURRENT_PHP_LISTEN]: "; read PHP_LISTEN
+  if [ -z "$PHP_LISTEN" ]; then
+    PHP_LISTEN=$CURRENT_PHP_LISTEN
+  fi
+  sudo sed -i "s,^listen = 127.0.0.1:9000,listen = $PHP_LISTEN," www.conf
+  sudo sed -i "s,^;listen.owner = www-data,listen.owner = www-data," www.conf
+  sudo sed -i "s,^;listen.group = www-data,listen.group = www-data," www.conf
+  sudo sed -i "s,^;listen.mode = 0660,listen.mode = 0660," www.conf
+  sudo service php$PHP_VER-fpm restart
 fi
 
 # Check if php5.5/5.6/7.0-fpm is running.
@@ -785,8 +861,7 @@ server {
         fastcgi_intercept_errors on;
         fastcgi_read_timeout 120;
         include fastcgi_params;
-        #fastcgi_pass 127.0.0.1:9000;
-        fastcgi_pass unix:/var/run/php5-fpm.sock;
+        fastcgi_pass 127.0.0.1:9000;
     }
 
     location @rewrite {
@@ -849,10 +924,11 @@ EOF'
     cp /etc/nginx/conf.d/drupal.conf.example /tmp/$SITE_ENV
     sed -i "s,{{ site }},$SITE_ENV,g" /tmp/$SITE_ENV
     if [ $PHP_VER == "7.0" ]; then
-      sed -i "s,php5-fpm,php/php$PHP_VER-fpm,g" /tmp/$SITE_ENV
+      NGINX_LISTEN="/run/php/php7.0-fpm.sock"
     else
-      sed -i "s,php5-fpm,php$PHP_VER-fpm,g" /tmp/$SITE_ENV
+      NGINX_LISTEN="/run/php5-fpm.sock"
     fi
+    sed -i "s,fastcgi_pass 127.0.0.1:9000,fastcgi_pass unix:$NGINX_LISTEN," /tmp/$SITE_ENV
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
     sudo ln -s /etc/nginx/sites-available/$SITE_ENV /etc/nginx/sites-enabled/$SITE_ENV
   fi
