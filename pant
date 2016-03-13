@@ -200,6 +200,7 @@ if [ $CONFIG == "yes" ]; then
   sudo sed -i "s,^;listen.group = www-data,listen.group = www-data," www.conf
   sudo sed -i "s,^;listen.mode = 0660,listen.mode = 0660," www.conf
   sudo service php$PHP_VER-fpm restart
+  cd
 fi
 
 # Check if php5.5/5.6/7.0-fpm is running.
@@ -1078,8 +1079,8 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   # TODO: Make this work so it doesn't uninstall all other packages.
   if [ $PHP_VER == "7.0" ]; then
     if [ ! -f /etc/php/mods-available/redis.ini ]; then
-      sudo apt-get purge php5* -y
-      sudo apt-get install php7.0-dev -y
+      #sudo apt-get purge php5* -y
+      #sudo apt-get install php7.0-dev -y
       #git clone https://github.com/phpredis/phpredis.git
       #cd phpredis
       #git checkout php7
