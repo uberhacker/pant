@@ -83,7 +83,12 @@ else
   CURRENT_PHP_VER="$MAJOR_PHP_VER.$MINOR_PHP_VER"
   PHP_VER=$CURRENT_PHP_VER
   if [ $CURRENT_PHP_VER != "7.0" ]; then
-    PHP_VER=5
+    PHP=$(apt-cache search php5 | grep ^php5 2> /dev/null)
+    if [ -z "$PHP" ]; then
+      PHP_VER=
+    else
+      PHP_VER=5
+    fi
   fi
 fi
 if [ $CONFIG == "yes" ]; then
@@ -116,17 +121,24 @@ if [ $CONFIG == "yes" ]; then
     fi
     PHP7=$(dpkg -l | grep php7.0 2> /dev/null)
     if [ -z "$PHP7" ]; then
-      sudo apt-get purge php5* -y
+      sudo apt-get purge php* -y
       sudo apt-get install php7.0 php7.0-cli php7.0-curl php7.0-fpm php7.0-gd php7.0-json php7.0-mcrypt php7.0-mysql -y
       sudo apt-get autoremove --purge -y
     fi
   else
     PHP_VER=5
-    PHP_FPM_DIR=/etc/php5/fpm/
+    PHP=$(apt-cache search php5 | grep ^php5 2> /dev/null)
+    if [ -z "$PHP" ]; then
+      PHP_VER=
+    fi
+    PHP_FPM_DIR=/etc/php$PHP_VER/fpm/
     PHP5=$(dpkg -l | grep php5 2> /dev/null)
     if [ -z "$PHP5" ]; then
-      sudo apt-get purge php7* -y
-      sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+      PHP7=$(dpkg -l | grep php7.0 2> /dev/null)
+      if [ ! -z "$PHP7" ]; then
+        sudo apt-get purge php7* -y
+      fi
+      sudo apt-get install php$PHP_VER php$PHP_VER-cli php$PHP_VER-curl php$PHP_VER-fpm php$PHP_VER-gd php$PHP_VER-mcrypt php$PHP_VER-mysqlnd -y
       sudo apt-get autoremove --purge -y
     fi
   fi
@@ -305,7 +317,7 @@ fi
 # Check if terminus is installed.
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
-  composer global require pantheon-systems/cli
+  composer global require pantheon-systems/terminus
   TERMINUS="$HOME/.composer/vendor/bin/terminus"
 fi
 
@@ -927,7 +939,7 @@ EOF'
     if [ $PHP_VER == "7.0" ]; then
       NGINX_LISTEN="/run/php/php7.0-fpm.sock"
     else
-      NGINX_LISTEN="/run/php5-fpm.sock"
+      NGINX_LISTEN="/run/php$PHP_VER-fpm.sock"
     fi
     sed -i "s,fastcgi_pass 127.0.0.1:9000,fastcgi_pass unix:$NGINX_LISTEN," /tmp/$SITE_ENV
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
@@ -1079,7 +1091,7 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   # TODO: Make this work so it doesn't uninstall all other packages.
   if [ $PHP_VER != "7.0" ]; then
     #if [ ! -f /etc/php/mods-available/redis.ini ]; then
-      #sudo apt-get purge php5* -y
+      #sudo apt-get purge php* -y
       #sudo apt-get install php7.0-dev -y
       #git clone https://github.com/phpredis/phpredis.git
       #cd phpredis
