@@ -83,7 +83,12 @@ else
   CURRENT_PHP_VER="$MAJOR_PHP_VER.$MINOR_PHP_VER"
   PHP_VER=$CURRENT_PHP_VER
   if [ $CURRENT_PHP_VER != "7.0" ]; then
-    PHP_VER=5
+    PHP=$(apt-cache search php5 | grep ^php5 2> /dev/null)
+    if [ -z "$PHP" ]; then
+      PHP_VER=
+    else
+      PHP_VER=5
+    fi
   fi
 fi
 if [ $CONFIG == "yes" ]; then
@@ -105,13 +110,13 @@ if [ $CONFIG == "yes" ]; then
         wget https://www.dotdeb.org/dotdeb.gpg
         sudo apt-key add dotdeb.gpg
         rm -f dotdeb.gpg
-        sudo apt‐get update
+        sudo apt-get update
       fi
     else
       if [ ! -f /etc/apt/sources.list.d/ondrej-php-$RELEASE.list ]; then
         sudo apt-get install software-properties-common -y
-        sudo add‐apt‐repository ppa:ondrej/php‐7.0
-        sudo apt‐get update
+        sudo add-apt-repository ppa:ondrej/php-7.0
+        sudo apt-get update
       fi
     fi
     PHP7=$(dpkg -l | grep php7.0 2> /dev/null)
@@ -121,11 +126,18 @@ if [ $CONFIG == "yes" ]; then
     fi
   else
     PHP_VER=5
-    PHP_FPM_DIR=/etc/php5/fpm/
+    PHP=$(apt-cache search php5 | grep ^php5 2> /dev/null)
+    if [ -z "$PHP" ]; then
+      PHP_VER=
+    fi
+    PHP_FPM_DIR=/etc/php$PHP_VER/fpm/
     PHP5=$(dpkg -l | grep php5 2> /dev/null)
     if [ -z "$PHP5" ]; then
-      sudo apt-get purge php7* -y
-      sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
+      PHP7=$(dpkg -l | grep php7.0 2> /dev/null)
+      if [ ! -z "$PHP7" ]; then
+        sudo apt-get purge php7* -y
+      fi
+      sudo apt-get install php$PHP_VER php$PHP_VER-cli php$PHP_VER-curl php$PHP_VER-fpm php$PHP_VER-gd php$PHP_VER-mcrypt php$PHP_VER-mysqlnd -y
     fi
   fi
   sudo apt-get autoremove --purge -y
@@ -305,7 +317,7 @@ fi
 # Check if terminus is installed.
 TERMINUS=$(which terminus)
 if [ $? == 1 ]; then
-  composer global require pantheon-systems/cli
+  composer global require pantheon-systems/terminus
   TERMINUS="$HOME/.composer/vendor/bin/terminus"
 fi
 
@@ -927,7 +939,7 @@ EOF'
     if [ $PHP_VER == "7.0" ]; then
       NGINX_LISTEN="/var/run/php/php7.0-fpm.sock"
     else
-      NGINX_LISTEN="/var/run/php5-fpm.sock"
+      NGINX_LISTEN="/run/php$PHP_VER-fpm.sock"
     fi
     sed -i "s,fastcgi_pass 127.0.0.1:9000,fastcgi_pass unix:$NGINX_LISTEN," /tmp/$SITE_ENV
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
@@ -1303,10 +1315,12 @@ fi
 # Install specific operation.
 if [ $OP == "install" ]; then
   # Restart web services.
-  sudo service redis-server restart
-  sudo service php$PHP_VER-fpm restart
+  sudo service redis-server stop
+  sudo service php$PHP_VER-fpm stop
   sudo service nginx restart
   sudo service mysql restart
+  sudo service php$PHP_VER-fpm start
+  sudo service redis-server start
 
   # Output final message.
   echo ""
@@ -1374,7 +1388,12 @@ if [ $OP == "uninstall" ]; then
       sudo sh -c "sed -i '/^$ENTRY/d' /etc/hosts" 2> /dev/null
     fi
 
-    # Restart web server.
+    # Restart web services.
+    sudo service redis-server stop
+    sudo service php$PHP_VER-fpm stop
     sudo service nginx restart
+    sudo service mysql restart
+    sudo service php$PHP_VER-fpm start
+    sudo service redis-server start
   fi
 fi
