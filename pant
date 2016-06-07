@@ -117,8 +117,7 @@ if [ $CONFIG == "yes" ]; then
     PHP7=$(dpkg -l | grep php7.0 2> /dev/null)
     if [ -z "$PHP7" ]; then
       sudo apt-get purge php5* -y
-      sudo apt-get install php7.0 php7.0-cli php7.0-curl php7.0-fpm php7.0-gd php7.0-json php7.0-mcrypt php7.0-mysql -y
-      sudo apt-get autoremove --purge -y
+      sudo apt-get install php7.0 php7.0-cli php7.0-curl php7.0-fpm php7.0-gd php7.0-json php7.0-mbstring php7.0-mcrypt php7.0-mysql php7.0-soap php7.0-xml -y
     fi
   else
     PHP_VER=5
@@ -127,9 +126,11 @@ if [ $CONFIG == "yes" ]; then
     if [ -z "$PHP5" ]; then
       sudo apt-get purge php7* -y
       sudo apt-get install php5 php5-cli php5-curl php5-fpm php5-gd php5-mcrypt php5-mysqlnd -y
-      sudo apt-get autoremove --purge -y
     fi
   fi
+  sudo apt-get autoremove --purge -y
+  sudo apt-get autoclean
+  sudo apt-get clean
 
   # Adjust PHP settings.
   cd $PHP_FPM_DIR
@@ -200,7 +201,6 @@ if [ $CONFIG == "yes" ]; then
   sudo sed -i "s,^;listen.group = www-data,listen.group = www-data," www.conf
   sudo sed -i "s,^;listen.mode = 0660,listen.mode = 0660," www.conf
   sudo service php$PHP_VER-fpm restart
-  cd
 fi
 
 # Check if php5.5/5.6/7.0-fpm is running.
@@ -925,9 +925,9 @@ EOF'
     cp /etc/nginx/conf.d/drupal.conf.example /tmp/$SITE_ENV
     sed -i "s,{{ site }},$SITE_ENV,g" /tmp/$SITE_ENV
     if [ $PHP_VER == "7.0" ]; then
-      NGINX_LISTEN="/run/php/php7.0-fpm.sock"
+      NGINX_LISTEN="/var/run/php/php7.0-fpm.sock"
     else
-      NGINX_LISTEN="/run/php5-fpm.sock"
+      NGINX_LISTEN="/var/run/php5-fpm.sock"
     fi
     sed -i "s,fastcgi_pass 127.0.0.1:9000,fastcgi_pass unix:$NGINX_LISTEN," /tmp/$SITE_ENV
     sudo mv /tmp/$SITE_ENV /etc/nginx/sites-available/$SITE_ENV
@@ -1079,8 +1079,8 @@ if [[ $OP == "install" || $OP == "db" || $OP == "sync" ]]; then
   # TODO: Make this work so it doesn't uninstall all other packages.
   if [ $PHP_VER == "7.0" ]; then
     if [ ! -f /etc/php/mods-available/redis.ini ]; then
-      #sudo apt-get purge php5* -y
-      #sudo apt-get install php7.0-dev -y
+      sudo apt-get purge php5* -y
+      sudo apt-get install php7.0-dev -y
       #git clone https://github.com/phpredis/phpredis.git
       #cd phpredis
       #git checkout php7
