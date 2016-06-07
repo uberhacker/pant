@@ -216,7 +216,11 @@ if [ $CONFIG == "yes" ]; then
 fi
 
 # Check if php5.5/5.6/7.0-fpm is running.
-PHP_PID=$(pidof php$PHP_VER-fpm 2> /dev/null)
+if [ $PHP_VER == "7.0" ]; then
+  PHP_PID=$(ls /run/php/php7.0-fpm.pid 2> /dev/null)
+else
+  PHP_PID=$(pidof php$PHP_VER-fpm 2> /dev/null)
+fi
 if [ -z "$PHP_PID" ]; then
   sudo service php$PHP_VER-fpm start
 fi
